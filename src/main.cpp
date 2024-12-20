@@ -17,8 +17,6 @@
 #include <cmath>
 
 // Shader sources
-// We'll use one shader program for both the cube and the grid.
-// The grid will have its own color attributes.
 const std::string vertexShaderSource = R"(
     #version 330 core
     layout (location = 0) in vec3 aPos;
@@ -84,10 +82,10 @@ std::vector<float> generateGridVertices(int halfSize = 10) {
         float b = isCenter ? centerColor[2] : lineColor[2];
 
         // Line from (x,0,-halfSize) to (x,0,halfSize)
-        vertices.push_back((float)x); vertices.push_back(0.0f); vertices.push_back((float)-halfSize);
+        vertices.push_back(static_cast<float>(x)); vertices.push_back(0.0f); vertices.push_back(static_cast<float>(-halfSize));
         vertices.push_back(r); vertices.push_back(g); vertices.push_back(b);
 
-        vertices.push_back((float)x); vertices.push_back(0.0f); vertices.push_back((float)halfSize);
+        vertices.push_back(static_cast<float>(x)); vertices.push_back(0.0f); vertices.push_back(static_cast<float>(halfSize));
         vertices.push_back(r); vertices.push_back(g); vertices.push_back(b);
     }
 
@@ -99,10 +97,10 @@ std::vector<float> generateGridVertices(int halfSize = 10) {
         float b = isCenter ? centerColor[2] : lineColor[2];
 
         // Line from (-halfSize,0,z) to (halfSize,0,z)
-        vertices.push_back((float)-halfSize); vertices.push_back(0.0f); vertices.push_back((float)z);
+        vertices.push_back(static_cast<float>(-halfSize)); vertices.push_back(0.0f); vertices.push_back(static_cast<float>(z));
         vertices.push_back(r); vertices.push_back(g); vertices.push_back(b);
 
-        vertices.push_back((float)halfSize); vertices.push_back(0.0f); vertices.push_back((float)z);
+        vertices.push_back(static_cast<float>(halfSize)); vertices.push_back(0.0f); vertices.push_back(static_cast<float>(z));
         vertices.push_back(r); vertices.push_back(g); vertices.push_back(b);
     }
 
@@ -114,9 +112,9 @@ int main() {
     sf::ContextSettings settings;
     settings.depthBits = 24;
     settings.stencilBits = 8;
+    settings.antialiasingLevel = 16;
     settings.majorVersion = 3;
     settings.minorVersion = 3;
-    settings.antialiasingLevel = 16;
     settings.attributeFlags = sf::ContextSettings::Core; // Core profile
 
     sf::RenderWindow window(sf::VideoMode(800, 600), "3D Engine with SFML - Enhanced Controls", sf::Style::Default, settings);
@@ -275,6 +273,9 @@ int main() {
     glm::vec3 cameraPos = glm::vec3(0.0f, 1.0f, 3.0f);
     glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
 
+    // Enable adjusted cameraUp (regarding body-fixed coordinate system)
+    bool enableCameraUpAdjusted = false;
+
     // We'll use yaw/pitch to control the direction.
     float yaw = -90.0f; // Facing negative z by default
     float pitch = 0.0f;
@@ -288,7 +289,10 @@ int main() {
         return glm::normalize(front);
     };
     glm::vec3 cameraFront = updateCameraFront(yaw, pitch);
+
+    // Initialize cameraRight and cameraUpAdjusted (for body-fixed )
     glm::vec3 cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
+    glm::vec3 cameraUpAdjusted = glm::normalize(glm::cross(cameraRight, cameraFront));
 
     // Mouse look toggle
     bool enableMouseLook = false;
@@ -298,7 +302,7 @@ int main() {
     sf::Vector2i windowCenter(window.getSize().x / 2, window.getSize().y / 2);
 
     // --- Projection Matrix ---
-    glm::mat4 projection = glm::perspective(glm::radians(45.0f), 800.0f / 600.0f, 0.1f, 100.0f);
+    glm::mat4 projection = glm::perspective(glm::radians(45.0f), 800.f / 600.f, 0.1f, 100.0f);
 
     // Enable depth test
     glEnable(GL_DEPTH_TEST);
@@ -306,14 +310,13 @@ int main() {
     // Initialize delta clock
     sf::Clock deltaClock;
 
-    // Define movement speed
+    // Define movement speed (units per second)
     float velocity = 5.0f;
 
     sf::Clock clock; // to rotate the cube over time
 
     while (window.isOpen()) {
-
-        // Calculate delta time
+        // --- Calculate delta time ---
         float deltaTime = deltaClock.restart().asSeconds();
 
         // --- Event Handling ---
@@ -324,57 +327,28 @@ int main() {
             }
 
             // Toggle mouse look
-            if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::M) {
-                enableMouseLook = !enableMouseLook;
-                if (enableMouseLook) {
-                    window.setMouseCursorVisible(false);
-                    sf::Mouse::setPosition(windowCenter, window);
-                } else {
-                    window.setMouseCursorVisible(true);
-                }
-            }
-
-            // Recalculate cameraRight after updating cameraFront
-            glm::vec3 cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
-
-            // Keyboard input for camera movement and quitting
             if (event.type == sf::Event::KeyPressed) {
-                if (event.key.code == sf::Keyboard::Q) {
-                    window.close(); // Quit application
+                if(event.key.code == sf::Keyboard::M) {
+                    enableMouseLook = !enableMouseLook;
+                    if (enableMouseLook) {
+                        window.setMouseCursorVisible(false);
+                        sf::Mouse::setPosition(windowCenter, window);
+                    } else {
+                        window.setMouseCursorVisible(true);
+                    }
+                } else if (event.key.code == sf::Keyboard::U) {
+                    enableCameraUpAdjusted = !enableCameraUpAdjusted;
+                    std::cout << "Camera Up Adjusted: " << (enableCameraUpAdjusted ? "Enabled" : "Disabled") << std::endl;
                 }
             }
 
-            // Accumulate movement directions
-            glm::vec3 movement(0.0f);
-
-            // Camera movement using keyboard inputs
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::W)) {
-                movement += cameraFront * 0.1f;
-            }
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::S)) {
-                movement -= cameraFront * 0.1f;
-            }
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::A)) {
-                movement -= cameraRight * 0.1f;
-            }
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::D)) {
-                movement += cameraRight * 0.1f;
-            }
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::C)) {
-                    movement.y += 0.1f;
-            }
-            if ( sf::Keyboard::isKeyPressed(sf::Keyboard::V)) {
-                    movement.y -= 0.1f;
-            }
-
-            // Apply movement with normalization and deltaTime
-            if (glm::length(movement) != 0.0f) {
-                movement = glm::normalize(movement) * velocity * deltaTime;
-                cameraPos += movement;
+            // Handle quitting via Q key
+            if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape) {
+                window.close();
             }
         }
 
-        // Mouse look
+        // --- Mouse Look Handling ---
         if (enableMouseLook) {
             sf::Vector2i mousePos = sf::Mouse::getPosition(window);
             float xoffset = static_cast<float>(mousePos.x - windowCenter.x);
@@ -394,6 +368,36 @@ int main() {
 
             cameraFront = updateCameraFront(yaw, pitch);
             cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
+            cameraUpAdjusted = glm::normalize(glm::cross(cameraRight, cameraFront));
+        }
+
+        // --- Movement Handling ---
+        glm::vec3 movement(0.0f);
+
+        // Camera movement using keyboard inputs
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::W)) {
+            movement += cameraFront;
+        }
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::S)) {
+            movement -= cameraFront;
+        }
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::A)) {
+            movement -= cameraRight;
+        }
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::D)) {
+            movement += cameraRight;
+        }
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::C)) {
+            movement += (enableCameraUpAdjusted ? cameraUpAdjusted : cameraUp);
+        }
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::V)) {
+            movement -= (enableCameraUpAdjusted ? cameraUpAdjusted : cameraUp);
+        }
+
+        // Apply movement with normalization and deltaTime
+        if (glm::length(movement) != 0.0f) {
+            movement = glm::normalize(movement) * velocity * deltaTime;
+            cameraPos += movement;
         }
 
         // --- Transformations ---
@@ -404,7 +408,12 @@ int main() {
         model = glm::rotate(model, angle * glm::radians(20.0f), glm::vec3(1.0f, 1.0f, 0.0f));
 
         // Update view matrix
-        glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
+        glm::mat4 view;
+        if (enableCameraUpAdjusted) {
+            view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUpAdjusted);
+        } else {
+            view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
+        }
 
         // --- Drawing ---
         glClearColor(1.0f, 1.0f, 1.0f, 1.0f); // White background
