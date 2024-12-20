@@ -116,7 +116,7 @@ int main() {
     settings.stencilBits = 8;
     settings.majorVersion = 3;
     settings.minorVersion = 3;
-    settings.antialiasingLevel = 16;
+    // settings.antialiasingLevel = 16;
     settings.attributeFlags = sf::ContextSettings::Core; // Core profile
 
     sf::RenderWindow window(sf::VideoMode(800, 600), "3D Engine with SFML - Enhanced Controls", sf::Style::Default, settings);
@@ -325,25 +325,29 @@ int main() {
 
             // Keyboard input for camera movement and quitting
             if (event.type == sf::Event::KeyPressed) {
-                if (event.key.code == sf::Keyboard::A) {
-                    // cameraPos.x -= 0.1f;
-                    cameraPos -= cameraRight * 0.1f;
-                } else if (event.key.code == sf::Keyboard::D) {
-                    // cameraPos.x += 0.1f;
-                    cameraPos += cameraRight * 0.1f;
-                } else if (event.key.code == sf::Keyboard::Down) {
-                    cameraPos.y -= 0.1f;
-                } else if (event.key.code == sf::Keyboard::Up) {
-                    cameraPos.y += 0.1f;
-                } else if (event.key.code == sf::Keyboard::W) {
-                    // Move camera forward along cameraFront
-                    cameraPos += cameraFront * 0.1f;
-                } else if (event.key.code == sf::Keyboard::S) {
-                    // Move camera backward
-                    cameraPos -= cameraFront * 0.1f;
-                } else if (event.key.code == sf::Keyboard::Q) {
+                if (event.key.code == sf::Keyboard::Q) {
                     window.close(); // Quit application
                 }
+            }
+
+            // Camera movement using keyboard inputs
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::W)) {
+                cameraPos += cameraFront * 0.1f;
+            }
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::S)) {
+                cameraPos -= cameraFront * 0.1f;
+            }
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::A)) {
+                cameraPos -= cameraRight * 0.1f;
+            }
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::D)) {
+                cameraPos += cameraRight * 0.1f;
+            }
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::C)) {
+                    cameraPos.y += 0.1f;
+            }
+            if ( sf::Keyboard::isKeyPressed(sf::Keyboard::V)) {
+                    cameraPos.y -= 0.1f;
             }
         }
 
