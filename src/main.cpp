@@ -112,7 +112,7 @@ int main() {
     sf::ContextSettings settings;
     settings.depthBits = 24;
     settings.stencilBits = 8;
-    settings.antialiasingLevel = 16;
+    settings.antialiasingLevel = 16; // Enable 16x AA for smoother visuals
     settings.majorVersion = 3;
     settings.minorVersion = 3;
     settings.attributeFlags = sf::ContextSettings::Core; // Core profile
@@ -273,12 +273,10 @@ int main() {
     glm::vec3 cameraPos = glm::vec3(0.0f, 1.0f, 3.0f);
     glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
 
-    // Enable adjusted cameraUp (regarding body-fixed coordinate system)
-    bool enableCameraUpAdjusted = false;
-
-    // We'll use yaw/pitch to control the direction.
+    // Yaw rotation variables
     float yaw = -90.0f; // Facing negative z by default
-    float pitch = 0.0f;
+    float pitch = 0.0f; // Looking straight ahead
+    const float yawSpeed = 60.0f; // Degrees per second
 
     // Compute cameraFront from yaw/pitch
     auto updateCameraFront = [&](float yaw, float pitch) -> glm::vec3 {
@@ -290,9 +288,12 @@ int main() {
     };
     glm::vec3 cameraFront = updateCameraFront(yaw, pitch);
 
-    // Initialize cameraRight and cameraUpAdjusted (for body-fixed )
+    // Initialize cameraRight and cameraUpAdjusted
     glm::vec3 cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
     glm::vec3 cameraUpAdjusted = glm::normalize(glm::cross(cameraRight, cameraFront));
+
+    // Camera up adjustment toggle
+    bool enableCameraUpAdjusted = false;
 
     // Mouse look toggle
     bool enableMouseLook = false;
@@ -318,6 +319,7 @@ int main() {
     while (window.isOpen()) {
         // --- Calculate delta time ---
         float deltaTime = deltaClock.restart().asSeconds();
+        if (deltaTime > 0.1f) deltaTime = 0.1f; // Prevent large jumps
 
         // --- Event Handling ---
         sf::Event event;
@@ -326,23 +328,24 @@ int main() {
                 window.close();
             }
 
-            // Toggle mouse look
-            if (event.type == sf::Event::KeyPressed) {
-                if(event.key.code == sf::Keyboard::M) {
-                    enableMouseLook = !enableMouseLook;
-                    if (enableMouseLook) {
-                        window.setMouseCursorVisible(false);
-                        sf::Mouse::setPosition(windowCenter, window);
-                    } else {
-                        window.setMouseCursorVisible(true);
-                    }
-                } else if (event.key.code == sf::Keyboard::U) {
-                    enableCameraUpAdjusted = !enableCameraUpAdjusted;
-                    std::cout << "Camera Up Adjusted: " << (enableCameraUpAdjusted ? "Enabled" : "Disabled") << std::endl;
+            // Toggle mouse look with 'M' key
+            if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::M) {
+                enableMouseLook = !enableMouseLook;
+                if (enableMouseLook) {
+                    window.setMouseCursorVisible(false);
+                    sf::Mouse::setPosition(windowCenter, window);
+                } else {
+                    window.setMouseCursorVisible(true);
                 }
             }
 
-            // Handle quitting via Q key
+            // Toggle camera up adjustment with 'U' key
+            if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::U) {
+                enableCameraUpAdjusted = !enableCameraUpAdjusted;
+                std::cout << "Camera Up Adjusted: " << (enableCameraUpAdjusted ? "Enabled" : "Disabled") << std::endl;
+            }
+
+            // Handle quitting via 'Escape' key
             if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape) {
                 window.close();
             }
@@ -394,11 +397,31 @@ int main() {
             movement -= (enableCameraUpAdjusted ? cameraUpAdjusted : cameraUp);
         }
 
+        // Handle yaw input
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::E)) {
+            yaw += yawSpeed * deltaTime; // Rotate left
+        }
+        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Q)) {
+            yaw -= yawSpeed * deltaTime; // Rotate right
+        }
+
+        // Optional: Clamp yaw to [0, 360) degrees to prevent overflow
+        if (yaw >= 360.0f || yaw <= -360.0f) {
+            yaw = 0.0f;
+        }
+
         // Apply movement with normalization and deltaTime
         if (glm::length(movement) != 0.0f) {
             movement = glm::normalize(movement) * velocity * deltaTime;
             cameraPos += movement;
         }
+
+        // --- Camera Orientation Update ---
+        cameraFront = updateCameraFront(yaw, pitch);
+        cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
+
+        // Update cameraUpAdjusted based on yaw
+        cameraUpAdjusted = glm::normalize(glm::cross(cameraRight, cameraFront));
 
         // --- Transformations ---
         glm::mat4 model = glm::mat4(1.0f);
@@ -408,12 +431,8 @@ int main() {
         model = glm::rotate(model, angle * glm::radians(20.0f), glm::vec3(1.0f, 1.0f, 0.0f));
 
         // Update view matrix
-        glm::mat4 view;
-        if (enableCameraUpAdjusted) {
-            view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUpAdjusted);
-        } else {
-            view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
-        }
+        glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, 
+                                     (enableCameraUpAdjusted ? cameraUpAdjusted : cameraUp));
 
         // --- Drawing ---
         glClearColor(1.0f, 1.0f, 1.0f, 1.0f); // White background
@@ -435,7 +454,6 @@ int main() {
         glm::mat4 gridModel = glm::mat4(1.0f);
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(gridModel));
         glBindVertexArray(gridVAO);
-        // Each line: 2 vertices. We have (21 lines in x-dir + 21 lines in z-dir) * 2 vertices each = 84 vertices total.
         // Draw using GL_LINES
         glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(gridVertices.size() / 6)); // each vertex has 6 floats (pos + color)
         checkOpenGLError("Draw Grid");
