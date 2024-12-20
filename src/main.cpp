@@ -116,7 +116,7 @@ int main() {
     settings.stencilBits = 8;
     settings.majorVersion = 3;
     settings.minorVersion = 3;
-    // settings.antialiasingLevel = 16;
+    settings.antialiasingLevel = 16;
     settings.attributeFlags = sf::ContextSettings::Core; // Core profile
 
     sf::RenderWindow window(sf::VideoMode(800, 600), "3D Engine with SFML - Enhanced Controls", sf::Style::Default, settings);
@@ -303,8 +303,19 @@ int main() {
     // Enable depth test
     glEnable(GL_DEPTH_TEST);
 
+    // Initialize delta clock
+    sf::Clock deltaClock;
+
+    // Define movement speed
+    float velocity = 5.0f;
+
     sf::Clock clock; // to rotate the cube over time
+
     while (window.isOpen()) {
+
+        // Calculate delta time
+        float deltaTime = deltaClock.restart().asSeconds();
+
         // --- Event Handling ---
         sf::Event event;
         while (window.pollEvent(event)) {
@@ -323,6 +334,9 @@ int main() {
                 }
             }
 
+            // Recalculate cameraRight after updating cameraFront
+            glm::vec3 cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
+
             // Keyboard input for camera movement and quitting
             if (event.type == sf::Event::KeyPressed) {
                 if (event.key.code == sf::Keyboard::Q) {
@@ -330,24 +344,33 @@ int main() {
                 }
             }
 
+            // Accumulate movement directions
+            glm::vec3 movement(0.0f);
+
             // Camera movement using keyboard inputs
             if (sf::Keyboard::isKeyPressed(sf::Keyboard::W)) {
-                cameraPos += cameraFront * 0.1f;
+                movement += cameraFront * 0.1f;
             }
             if (sf::Keyboard::isKeyPressed(sf::Keyboard::S)) {
-                cameraPos -= cameraFront * 0.1f;
+                movement -= cameraFront * 0.1f;
             }
             if (sf::Keyboard::isKeyPressed(sf::Keyboard::A)) {
-                cameraPos -= cameraRight * 0.1f;
+                movement -= cameraRight * 0.1f;
             }
             if (sf::Keyboard::isKeyPressed(sf::Keyboard::D)) {
-                cameraPos += cameraRight * 0.1f;
+                movement += cameraRight * 0.1f;
             }
             if (sf::Keyboard::isKeyPressed(sf::Keyboard::C)) {
-                    cameraPos.y += 0.1f;
+                    movement.y += 0.1f;
             }
             if ( sf::Keyboard::isKeyPressed(sf::Keyboard::V)) {
-                    cameraPos.y -= 0.1f;
+                    movement.y -= 0.1f;
+            }
+
+            // Apply movement with normalization and deltaTime
+            if (glm::length(movement) != 0.0f) {
+                movement = glm::normalize(movement) * velocity * deltaTime;
+                cameraPos += movement;
             }
         }
 
@@ -380,6 +403,7 @@ int main() {
         float angle = clock.getElapsedTime().asSeconds();
         model = glm::rotate(model, angle * glm::radians(20.0f), glm::vec3(1.0f, 1.0f, 0.0f));
 
+        // Update view matrix
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
 
         // --- Drawing ---
