@@ -1,5 +1,4 @@
 #ifdef __APPLE__
-// Use the Core OpenGL headers on macOS
 #include <OpenGL/gl3.h>
 #else
 #include <GL/glew.h>
@@ -12,8 +11,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <glm/gtx/string_cast.hpp> // For glm::to_string
-
+#include <glm/gtx/string_cast.hpp>
 #include <iostream>
 #include <vector>
 
@@ -21,6 +19,9 @@
 const std::string vertexShaderSource = R"(
     #version 330 core
     layout (location = 0) in vec3 aPos;
+    layout (location = 1) in vec3 aColor;
+
+    out vec3 vColor;
 
     uniform mat4 model;
     uniform mat4 view;
@@ -28,21 +29,22 @@ const std::string vertexShaderSource = R"(
 
     void main()
     {
+        vColor = aColor;
         gl_Position = projection * view * model * vec4(aPos, 1.0);
     }
 )";
 
 const std::string fragmentShaderSource = R"(
     #version 330 core
+    in vec3 vColor;
     out vec4 FragColor;
 
     void main()
     {
-        FragColor = vec4(1.0, 1.0, 1.0, 1.0); // White color
+        FragColor = vec4(vColor, 1.0);
     }
 )";
 
-// Function to check for OpenGL errors
 void checkOpenGLError(const std::string& label) {
     GLenum error = glGetError();
     if (error != GL_NO_ERROR) {
@@ -68,16 +70,16 @@ int main() {
     settings.stencilBits = 8;
     settings.majorVersion = 3;
     settings.minorVersion = 3;
-    settings.antialiasingLevel = 8;
-    settings.attributeFlags = sf::ContextSettings::Core; // Request core profile
+    settings.antialiasingLevel = 16;
+    settings.attributeFlags = sf::ContextSettings::Core; // Core profile
 
-    sf::RenderWindow window(sf::VideoMode(800, 600), "3D Engine with SFML", sf::Style::Default, settings);
+    sf::RenderWindow window(sf::VideoMode(800, 600), "3D Engine with SFML - Multicolored Cube", sf::Style::Default, settings);
     window.setVerticalSyncEnabled(true);
     window.setFramerateLimit(60);
     window.setActive(true);
 
 #ifndef __APPLE__
-    // Initialize GLEW on non-Apple platforms. On Apple, gl3.h is enough for core GL.
+    // Initialize GLEW on non-Apple platforms:
     glewExperimental = GL_TRUE;
     GLenum glewStatus = glewInit();
     if (glewStatus != GLEW_OK) {
@@ -87,14 +89,15 @@ int main() {
 #endif
 
     // --- Shader Program ---
-    // 1. Create and compile the vertex shader
+    // Vertex shader
     GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    const GLchar* vss = vertexShaderSource.c_str();
-    glShaderSource(vertexShader, 1, &vss, NULL);
-    glCompileShader(vertexShader);
+    {
+        const GLchar* vss = vertexShaderSource.c_str();
+        glShaderSource(vertexShader, 1, &vss, NULL);
+        glCompileShader(vertexShader);
+    }
     checkOpenGLError("Compile Vertex Shader");
 
-    // Check for vertex shader compilation errors
     GLint success;
     GLchar infoLog[512];
     glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
@@ -103,98 +106,97 @@ int main() {
         std::cerr << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
     }
 
-    // 2. Create and compile the fragment shader
+    // Fragment shader
     GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    const GLchar* fss = fragmentShaderSource.c_str();
-    glShaderSource(fragmentShader, 1, &fss, NULL);
-    glCompileShader(fragmentShader);
+    {
+        const GLchar* fss = fragmentShaderSource.c_str();
+        glShaderSource(fragmentShader, 1, &fss, NULL);
+        glCompileShader(fragmentShader);
+    }
     checkOpenGLError("Compile Fragment Shader");
 
-    // Check for fragment shader compilation errors
     glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
     if (!success) {
         glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
         std::cerr << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
     }
 
-    // 3. Link the shaders into a shader program
+    // Link program
     GLuint shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, vertexShader);
     glAttachShader(shaderProgram, fragmentShader);
     glLinkProgram(shaderProgram);
     checkOpenGLError("Link Shader Program");
 
-    // Check for linking errors
     glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
     if (!success) {
         glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
         std::cerr << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
     }
 
-    // Delete the shaders (they are now linked into the program)
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    // Check uniform locations
     GLint modelLoc = glGetUniformLocation(shaderProgram, "model");
     GLint viewLoc = glGetUniformLocation(shaderProgram, "view");
     GLint projectionLoc = glGetUniformLocation(shaderProgram, "projection");
+
     std::cout << "Model uniform location: " << modelLoc << std::endl;
     std::cout << "View uniform location: " << viewLoc << std::endl;
     std::cout << "Projection uniform location: " << projectionLoc << std::endl;
 
-    // --- 3D Data (Quad) ---
-    std::vector<float> vertices = {
-        // Positions
-        -0.5f, -0.5f, 0.0f,  // Bottom left
-         0.5f, -0.5f, 0.0f,  // Bottom right
-         0.5f,  0.5f, 0.0f,  // Top right
-        -0.5f,  0.5f, 0.0f   // Top left
+    // --- Cube Data ---
+    // We'll store positions and colors interleaved: (x, y, z, r, g, b) per vertex
+    float vertices[] = {
+        // Positions        // Colors
+        -0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.0f, // Red
+         0.5f, -0.5f, -0.5f,  0.0f, 1.0f, 0.0f, // Green
+         0.5f,  0.5f, -0.5f,  0.0f, 0.0f, 1.0f, // Blue
+        -0.5f,  0.5f, -0.5f,  1.0f, 1.0f, 0.0f, // Yellow
+
+        -0.5f, -0.5f,  0.5f,  0.0f, 1.0f, 1.0f, // Cyan
+         0.5f, -0.5f,  0.5f,  1.0f, 0.0f, 1.0f, // Magenta
+         0.5f,  0.5f,  0.5f,  1.0f, 0.5f, 0.5f, // Pink-ish
+        -0.5f,  0.5f,  0.5f,  0.5f, 1.0f, 0.5f  // Lime-ish
     };
 
-    std::vector<unsigned int> indices = {
-        0, 1, 2,  // First triangle
-        0, 2, 3   // Second triangle
+    unsigned int indices[] = {
+        // Back face
+        0, 1, 2,
+        2, 3, 0,
+        // Front face
+        4, 5, 6,
+        6, 7, 4,
+        // Left face
+        0, 3, 7,
+        7, 4, 0,
+        // Right face
+        1, 5, 6,
+        6, 2, 1,
+        // Bottom face
+        0, 1, 5,
+        5, 4, 0,
+        // Top face
+        3, 2, 6,
+        6, 7, 3
     };
 
-    std::cout << "Vertices: ";
-    for (float v : vertices) {
-        std::cout << v << " ";
-    }
-    std::cout << std::endl;
-
-    std::cout << "Indices: ";
-    for (unsigned int i : indices) {
-        std::cout << i << " ";
-    }
-    std::cout << std::endl;
-
-    // Create and bind a VAO
+    // Create VAO
     GLuint VAO;
     glGenVertexArrays(1, &VAO);
     glBindVertexArray(VAO);
     checkOpenGLError("Bind Vertex Array");
 
-    // Create and bind a VBO
+    // Create VBO
     GLuint VBO;
     glGenBuffers(1, &VBO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     checkOpenGLError("Bind VBO");
 
-    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     checkOpenGLError("Upload VBO data");
 
-    // Verify data in VBO
-    std::vector<float> uploadedVertices(vertices.size());
-    glGetBufferSubData(GL_ARRAY_BUFFER, 0, vertices.size() * sizeof(float), uploadedVertices.data());
-    checkOpenGLError("Read VBO data");
-    std::cout << "Uploaded Vertices: ";
-    for (float v : uploadedVertices) {
-        std::cout << v << " ";
-    }
-    std::cout << std::endl;
-
-    // Create and bind an EBO
+    // Create EBO
     GLuint EBO;
     glGenBuffers(1, &EBO);
     checkOpenGLError("Create EBO");
@@ -202,27 +204,22 @@ int main() {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     checkOpenGLError("Bind EBO");
 
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), indices.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
     checkOpenGLError("Upload EBO data");
 
-    // Verify data in EBO
-    std::vector<unsigned int> uploadedIndices(indices.size());
-    glGetBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, indices.size() * sizeof(unsigned int), uploadedIndices.data());
-    checkOpenGLError("Read EBO data");
-    std::cout << "Uploaded Indices: ";
-    for (unsigned int i : uploadedIndices) {
-        std::cout << i << " ";
-    }
-    std::cout << std::endl;
-
-    // Set vertex attribute pointers
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    checkOpenGLError("Set vertex attribute pointer");
-
+    // Vertex attribute pointer for position (location = 0)
+    // Each vertex: 3 floats position, 3 floats color, total stride = 6 * sizeof(float)
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    checkOpenGLError("Set vertex attribute pointer for position");
     glEnableVertexAttribArray(0);
-    checkOpenGLError("Enable vertex attribute array");
+    checkOpenGLError("Enable vertex attribute array for position");
 
-    // Unbind VAO
+    // Vertex attribute pointer for color (location = 1)
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    checkOpenGLError("Set vertex attribute pointer for color");
+    glEnableVertexAttribArray(1);
+    checkOpenGLError("Enable vertex attribute array for color");
+
     glBindVertexArray(0);
 
     // --- Camera Setup ---
@@ -233,10 +230,11 @@ int main() {
     // --- Projection Matrix ---
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), 800.0f / 600.0f, 0.1f, 100.0f);
 
-    // Enable depth test once (not strictly necessary every frame)
+    // Enable depth test
     glEnable(GL_DEPTH_TEST);
 
     // --- Main Loop ---
+    sf::Clock clock; // to rotate the cube over time
     while (window.isOpen()) {
         // --- Event Handling ---
         sf::Event event;
@@ -244,6 +242,8 @@ int main() {
             if (event.type == sf::Event::Closed) {
                 window.close();
             }
+
+            // Keyboard input for camera movement
             if (event.type == sf::Event::KeyPressed) {
                 if (event.key.code == sf::Keyboard::Left) {
                     cameraPos.x -= 0.1f;
@@ -263,36 +263,32 @@ int main() {
 
         // --- Transformations ---
         glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(0.0f, 0.0f, -5.0f)); // Move the quad back
+        // Move the cube back
+        model = glm::translate(model, glm::vec3(0.0f, 0.0f, -5.0f));
+        // Rotate the cube over time
+        float angle = clock.getElapsedTime().asSeconds();
+        // model = glm::rotate(model, angle * glm::radians(20.0f), glm::vec3(1.0f, 1.0f, 0.0f));
+
         glm::mat4 view = glm::lookAt(cameraPos, cameraTarget, cameraUp);
 
-        // Print matrices
-        std::cout << "Model Matrix:\n" << glm::to_string(model) << std::endl;
-        std::cout << "View Matrix:\n" << glm::to_string(view) << std::endl;
-        std::cout << "Projection Matrix:\n" << glm::to_string(projection) << std::endl;
-
         // --- Drawing ---
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClearColor(1.0f, 1.0f, 1.0f, 1.0f); // White background
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         // Use the shader program
         glUseProgram(shaderProgram);
 
-        // Set uniform values in the shader
+        // Set uniform values
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
-        // Bind the VAO
+        // Bind VAO and draw the cube
         glBindVertexArray(VAO);
-
-        // Draw the quad using glDrawElements
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+        glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
         checkOpenGLError("Draw");
 
-        // Unbind VAO
         glBindVertexArray(0);
-
         window.display();
     }
 
