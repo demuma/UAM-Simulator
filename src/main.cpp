@@ -288,6 +288,7 @@ int main() {
         return glm::normalize(front);
     };
     glm::vec3 cameraFront = updateCameraFront(yaw, pitch);
+    glm::vec3 cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
 
     // Mouse look toggle
     bool enableMouseLook = false;
@@ -325,9 +326,11 @@ int main() {
             // Keyboard input for camera movement and quitting
             if (event.type == sf::Event::KeyPressed) {
                 if (event.key.code == sf::Keyboard::A) {
-                    cameraPos.x -= 0.1f;
+                    // cameraPos.x -= 0.1f;
+                    cameraPos -= cameraRight * 0.1f;
                 } else if (event.key.code == sf::Keyboard::D) {
-                    cameraPos.x += 0.1f;
+                    // cameraPos.x += 0.1f;
+                    cameraPos += cameraRight * 0.1f;
                 } else if (event.key.code == sf::Keyboard::Down) {
                     cameraPos.y -= 0.1f;
                 } else if (event.key.code == sf::Keyboard::Up) {
@@ -363,6 +366,7 @@ int main() {
             if (pitch < -89.0f) pitch = -89.0f;
 
             cameraFront = updateCameraFront(yaw, pitch);
+            cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
         }
 
         // --- Transformations ---
