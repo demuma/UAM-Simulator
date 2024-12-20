@@ -14,8 +14,11 @@
 #include <glm/gtx/string_cast.hpp>
 #include <iostream>
 #include <vector>
+#include <cmath>
 
 // Shader sources
+// We'll use one shader program for both the cube and the grid.
+// The grid will have its own color attributes.
 const std::string vertexShaderSource = R"(
     #version 330 core
     layout (location = 0) in vec3 aPos;
@@ -45,6 +48,7 @@ const std::string fragmentShaderSource = R"(
     }
 )";
 
+// Function to check for OpenGL errors
 void checkOpenGLError(const std::string& label) {
     GLenum error = glGetError();
     if (error != GL_NO_ERROR) {
@@ -63,6 +67,48 @@ void checkOpenGLError(const std::string& label) {
     }
 }
 
+// Utility to generate a grid on the XZ-plane.
+std::vector<float> generateGridVertices(int halfSize = 10) {
+    // Lines parallel to X and Z.
+    // Each line: two endpoints with positions and colors.
+    // We'll color the grid lines gray and the center lines a bit darker.
+    std::vector<float> vertices;
+    float lineColor[3] = {0.7f, 0.7f, 0.7f};
+    float centerColor[3] = {0.3f, 0.3f, 0.3f};
+
+    // Lines along Z (varying x, from -halfSize to halfSize at z = constant)
+    for (int x = -halfSize; x <= halfSize; x++) {
+        bool isCenter = (x == 0);
+        float r = isCenter ? centerColor[0] : lineColor[0];
+        float g = isCenter ? centerColor[1] : lineColor[1];
+        float b = isCenter ? centerColor[2] : lineColor[2];
+
+        // Line from (x,0,-halfSize) to (x,0,halfSize)
+        vertices.push_back((float)x); vertices.push_back(0.0f); vertices.push_back((float)-halfSize);
+        vertices.push_back(r); vertices.push_back(g); vertices.push_back(b);
+
+        vertices.push_back((float)x); vertices.push_back(0.0f); vertices.push_back((float)halfSize);
+        vertices.push_back(r); vertices.push_back(g); vertices.push_back(b);
+    }
+
+    // Lines along X (varying z, from -halfSize to halfSize at x = constant)
+    for (int z = -halfSize; z <= halfSize; z++) {
+        bool isCenter = (z == 0);
+        float r = isCenter ? centerColor[0] : lineColor[0];
+        float g = isCenter ? centerColor[1] : lineColor[1];
+        float b = isCenter ? centerColor[2] : lineColor[2];
+
+        // Line from (-halfSize,0,z) to (halfSize,0,z)
+        vertices.push_back((float)-halfSize); vertices.push_back(0.0f); vertices.push_back((float)z);
+        vertices.push_back(r); vertices.push_back(g); vertices.push_back(b);
+
+        vertices.push_back((float)halfSize); vertices.push_back(0.0f); vertices.push_back((float)z);
+        vertices.push_back(r); vertices.push_back(g); vertices.push_back(b);
+    }
+
+    return vertices;
+}
+
 int main() {
     // --- SFML Window Setup ---
     sf::ContextSettings settings;
@@ -73,7 +119,7 @@ int main() {
     settings.antialiasingLevel = 16;
     settings.attributeFlags = sf::ContextSettings::Core; // Core profile
 
-    sf::RenderWindow window(sf::VideoMode(800, 600), "3D Engine with SFML - Multicolored Cube", sf::Style::Default, settings);
+    sf::RenderWindow window(sf::VideoMode(800, 600), "3D Engine with SFML - Enhanced Controls", sf::Style::Default, settings);
     window.setVerticalSyncEnabled(true);
     window.setFramerateLimit(60);
     window.setActive(true);
@@ -141,13 +187,8 @@ int main() {
     GLint viewLoc = glGetUniformLocation(shaderProgram, "view");
     GLint projectionLoc = glGetUniformLocation(shaderProgram, "projection");
 
-    std::cout << "Model uniform location: " << modelLoc << std::endl;
-    std::cout << "View uniform location: " << viewLoc << std::endl;
-    std::cout << "Projection uniform location: " << projectionLoc << std::endl;
-
     // --- Cube Data ---
-    // We'll store positions and colors interleaved: (x, y, z, r, g, b) per vertex
-    float vertices[] = {
+    float cubeVertices[] = {
         // Positions        // Colors
         -0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.0f, // Red
          0.5f, -0.5f, -0.5f,  0.0f, 1.0f, 0.0f, // Green
@@ -160,7 +201,7 @@ int main() {
         -0.5f,  0.5f,  0.5f,  0.5f, 1.0f, 0.5f  // Lime-ish
     };
 
-    unsigned int indices[] = {
+    unsigned int cubeIndices[] = {
         // Back face
         0, 1, 2,
         2, 3, 0,
@@ -181,51 +222,79 @@ int main() {
         6, 7, 3
     };
 
-    // Create VAO
-    GLuint VAO;
-    glGenVertexArrays(1, &VAO);
-    glBindVertexArray(VAO);
-    checkOpenGLError("Bind Vertex Array");
+    // Create VAO for cube
+    GLuint cubeVAO;
+    glGenVertexArrays(1, &cubeVAO);
+    glBindVertexArray(cubeVAO);
 
-    // Create VBO
-    GLuint VBO;
-    glGenBuffers(1, &VBO);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    checkOpenGLError("Bind VBO");
+    // Create VBO for cube
+    GLuint cubeVBO;
+    glGenBuffers(1, &cubeVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, cubeVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
 
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-    checkOpenGLError("Upload VBO data");
+    // Create EBO for cube
+    GLuint cubeEBO;
+    glGenBuffers(1, &cubeEBO);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, cubeEBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cubeIndices), cubeIndices, GL_STATIC_DRAW);
 
-    // Create EBO
-    GLuint EBO;
-    glGenBuffers(1, &EBO);
-    checkOpenGLError("Create EBO");
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    checkOpenGLError("Bind EBO");
-
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
-    checkOpenGLError("Upload EBO data");
-
-    // Vertex attribute pointer for position (location = 0)
-    // Each vertex: 3 floats position, 3 floats color, total stride = 6 * sizeof(float)
+    // Vertex attribute pointers for cube
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-    checkOpenGLError("Set vertex attribute pointer for position");
     glEnableVertexAttribArray(0);
-    checkOpenGLError("Enable vertex attribute array for position");
+    checkOpenGLError("Cube position attrib");
 
-    // Vertex attribute pointer for color (location = 1)
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
-    checkOpenGLError("Set vertex attribute pointer for color");
     glEnableVertexAttribArray(1);
-    checkOpenGLError("Enable vertex attribute array for color");
+    checkOpenGLError("Cube color attrib");
+
+    glBindVertexArray(0);
+
+    // --- Grid Data ---
+    std::vector<float> gridVertices = generateGridVertices(10);
+    GLuint gridVAO, gridVBO;
+    glGenVertexArrays(1, &gridVAO);
+    glBindVertexArray(gridVAO);
+
+    glGenBuffers(1, &gridVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, gridVBO);
+    glBufferData(GL_ARRAY_BUFFER, gridVertices.size() * sizeof(float), gridVertices.data(), GL_STATIC_DRAW);
+
+    // Vertex attributes for grid
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    checkOpenGLError("Grid position attrib");
+
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    checkOpenGLError("Grid color attrib");
 
     glBindVertexArray(0);
 
     // --- Camera Setup ---
-    glm::vec3 cameraPos = glm::vec3(0.0f, 0.0f, 3.0f);
-    glm::vec3 cameraTarget = glm::vec3(0.0f, 0.0f, 0.0f);
+    glm::vec3 cameraPos = glm::vec3(0.0f, 1.0f, 3.0f);
     glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
+
+    // We'll use yaw/pitch to control the direction.
+    float yaw = -90.0f; // Facing negative z by default
+    float pitch = 0.0f;
+
+    // Compute cameraFront from yaw/pitch
+    auto updateCameraFront = [&](float yaw, float pitch) -> glm::vec3 {
+        glm::vec3 front;
+        front.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
+        front.y = sin(glm::radians(pitch));
+        front.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
+        return glm::normalize(front);
+    };
+    glm::vec3 cameraFront = updateCameraFront(yaw, pitch);
+
+    // Mouse look toggle
+    bool enableMouseLook = false;
+    window.setMouseCursorVisible(true);
+
+    // Mouse center
+    sf::Vector2i windowCenter(window.getSize().x / 2, window.getSize().y / 2);
 
     // --- Projection Matrix ---
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), 800.0f / 600.0f, 0.1f, 100.0f);
@@ -233,7 +302,6 @@ int main() {
     // Enable depth test
     glEnable(GL_DEPTH_TEST);
 
-    // --- Main Loop ---
     sf::Clock clock; // to rotate the cube over time
     while (window.isOpen()) {
         // --- Event Handling ---
@@ -243,59 +311,106 @@ int main() {
                 window.close();
             }
 
-            // Keyboard input for camera movement
+            // Toggle mouse look
+            if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::M) {
+                enableMouseLook = !enableMouseLook;
+                if (enableMouseLook) {
+                    window.setMouseCursorVisible(false);
+                    sf::Mouse::setPosition(windowCenter, window);
+                } else {
+                    window.setMouseCursorVisible(true);
+                }
+            }
+
+            // Keyboard input for camera movement and quitting
             if (event.type == sf::Event::KeyPressed) {
-                if (event.key.code == sf::Keyboard::Left) {
+                if (event.key.code == sf::Keyboard::A) {
                     cameraPos.x -= 0.1f;
-                } else if (event.key.code == sf::Keyboard::Right) {
+                } else if (event.key.code == sf::Keyboard::D) {
                     cameraPos.x += 0.1f;
                 } else if (event.key.code == sf::Keyboard::Down) {
                     cameraPos.y -= 0.1f;
                 } else if (event.key.code == sf::Keyboard::Up) {
                     cameraPos.y += 0.1f;
                 } else if (event.key.code == sf::Keyboard::W) {
-                    cameraPos.z -= 0.1f;
+                    // Move camera forward along cameraFront
+                    cameraPos += cameraFront * 0.1f;
                 } else if (event.key.code == sf::Keyboard::S) {
-                    cameraPos.z += 0.1f;
+                    // Move camera backward
+                    cameraPos -= cameraFront * 0.1f;
+                } else if (event.key.code == sf::Keyboard::Q) {
+                    window.close(); // Quit application
                 }
             }
         }
 
+        // Mouse look
+        if (enableMouseLook) {
+            sf::Vector2i mousePos = sf::Mouse::getPosition(window);
+            float xoffset = static_cast<float>(mousePos.x - windowCenter.x);
+            float yoffset = static_cast<float>(windowCenter.y - mousePos.y); // Reversed since y-coordinates go from top to bottom
+            sf::Mouse::setPosition(windowCenter, window);
+
+            float sensitivity = 0.1f;
+            xoffset *= sensitivity;
+            yoffset *= sensitivity;
+
+            yaw += xoffset;
+            pitch += yoffset;
+
+            // Constrain pitch to prevent screen flip
+            if (pitch > 89.0f) pitch = 89.0f;
+            if (pitch < -89.0f) pitch = -89.0f;
+
+            cameraFront = updateCameraFront(yaw, pitch);
+        }
+
         // --- Transformations ---
         glm::mat4 model = glm::mat4(1.0f);
-        // Move the cube back
-        model = glm::translate(model, glm::vec3(0.0f, 0.0f, -5.0f));
-        // Rotate the cube over time
+        // Move and rotate the cube over time
+        model = glm::translate(model, glm::vec3(0.0f, 1.0f, -5.0f));
         float angle = clock.getElapsedTime().asSeconds();
-        // model = glm::rotate(model, angle * glm::radians(20.0f), glm::vec3(1.0f, 1.0f, 0.0f));
+        model = glm::rotate(model, angle * glm::radians(20.0f), glm::vec3(1.0f, 1.0f, 0.0f));
 
-        glm::mat4 view = glm::lookAt(cameraPos, cameraTarget, cameraUp);
+        glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
 
         // --- Drawing ---
         glClearColor(1.0f, 1.0f, 1.0f, 1.0f); // White background
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Use the shader program
         glUseProgram(shaderProgram);
 
-        // Set uniform values
+        // Set uniform matrices
         glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
-        // Bind VAO and draw the cube
-        glBindVertexArray(VAO);
+        // Draw the cube
+        glBindVertexArray(cubeVAO);
         glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
-        checkOpenGLError("Draw");
+        checkOpenGLError("Draw Cube");
+
+        // Draw the grid (model = identity for the grid)
+        glm::mat4 gridModel = glm::mat4(1.0f);
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(gridModel));
+        glBindVertexArray(gridVAO);
+        // Each line: 2 vertices. We have (21 lines in x-dir + 21 lines in z-dir) * 2 vertices each = 84 vertices total.
+        // Draw using GL_LINES
+        glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(gridVertices.size() / 6)); // each vertex has 6 floats (pos + color)
+        checkOpenGLError("Draw Grid");
 
         glBindVertexArray(0);
         window.display();
     }
 
     // --- Cleanup ---
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteBuffers(1, &VBO);
-    glDeleteBuffers(1, &EBO);
+    glDeleteVertexArrays(1, &cubeVAO);
+    glDeleteBuffers(1, &cubeVBO);
+    glDeleteBuffers(1, &cubeEBO);
+
+    glDeleteVertexArrays(1, &gridVAO);
+    glDeleteBuffers(1, &gridVBO);
+
     glDeleteProgram(shaderProgram);
 
     return 0;
