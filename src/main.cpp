@@ -15,9 +15,14 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
+#include <map>
+#include <string>
+#include <yaml-cpp/yaml.h>
 
 // Shader sources
-const std::string vertexShaderSource = R"(
+
+// Opaque Vertex Shader (Used for Faces)
+const std::string opaqueVertexShaderSource = R"(
     #version 330 core
     layout (location = 0) in vec3 aPos;
     layout (location = 1) in vec3 aColor;
@@ -35,14 +40,27 @@ const std::string vertexShaderSource = R"(
     }
 )";
 
-const std::string fragmentShaderSource = R"(
+// Opaque Fragment Shader (Used for Faces)
+const std::string opaqueFragmentShaderSource = R"(
     #version 330 core
     in vec3 vColor;
     out vec4 FragColor;
 
     void main()
     {
-        FragColor = vec4(vColor, 1.0);
+        FragColor = vec4(vColor, 1.0); // Fully opaque
+    }
+)";
+
+// Transparent Fragment Shader (Used for Edges)
+const std::string transparentFragmentShaderSource = R"(
+    #version 330 core
+    in vec3 vColor;
+    out vec4 FragColor;
+
+    void main()
+    {
+        FragColor = vec4(vColor, 0.7); // Semi-transparent
     }
 )";
 
@@ -107,12 +125,185 @@ std::vector<float> generateGridVertices(int halfSize = 10) {
     return vertices;
 }
 
+class Object3D {
+public:
+    std::string name;
+    glm::vec3 position;
+    glm::vec3 dimensions;
+    glm::vec3 color; // Single color for the entire cube
+
+    // Constructor to initialize from YAML data
+    Object3D(const YAML::Node& config) {
+        name = config["name"].as<std::string>();
+        position = glm::vec3(config["position"][0].as<float>(),
+                             config["position"][1].as<float>(),
+                             config["position"][2].as<float>());
+        dimensions = glm::vec3(config["dimensions"][0].as<float>(),
+                               config["dimensions"][1].as<float>(),
+                               config["dimensions"][2].as<float>());
+        color = glm::vec3(config["color"][0].as<float>(),
+                          config["color"][1].as<float>(),
+                          config["color"][2].as<float>());
+
+        setupMesh(); // Initialize VAO, VBO, EBO
+    }
+
+    // Draw faces using opaque shader and edges using transparent shader
+    void draw(GLuint opaqueShaderProgram, GLuint transparentShaderProgram, const glm::mat4& view, const glm::mat4& projection) {
+        // Calculate model matrix (translation and scaling)
+        glm::mat4 model = glm::mat4(1.0f);
+        model = glm::translate(model, position);
+        model = glm::scale(model, dimensions);
+
+        // --- Draw Faces ---
+        glUseProgram(opaqueShaderProgram);
+
+        // Set uniforms
+        GLint modelLoc = glGetUniformLocation(opaqueShaderProgram, "model");
+        GLint viewLoc = glGetUniformLocation(opaqueShaderProgram, "view");
+        GLint projectionLoc = glGetUniformLocation(opaqueShaderProgram, "projection");
+
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+        glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+        glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
+
+        // Disable blending for opaque rendering
+        glDisable(GL_BLEND);
+
+        // Draw triangles (faces)
+        glBindVertexArray(VAO);
+        glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+
+        // --- Draw Edges ---
+        glUseProgram(transparentShaderProgram);
+
+        // Set uniforms
+        GLint t_modelLoc = glGetUniformLocation(transparentShaderProgram, "model");
+        GLint t_viewLoc = glGetUniformLocation(transparentShaderProgram, "view");
+        GLint t_projectionLoc = glGetUniformLocation(transparentShaderProgram, "projection");
+
+        glUniformMatrix4fv(t_modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+        glUniformMatrix4fv(t_viewLoc, 1, GL_FALSE, glm::value_ptr(view));
+        glUniformMatrix4fv(t_projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
+
+        // Enable blending for transparent rendering
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        // **Important**: Ensure edges are drawn on top of faces
+        // Disable depth writing to allow lines to appear over faces
+        glDepthMask(GL_FALSE);
+
+        // Draw lines (edges)
+        glBindVertexArray(VAO);
+        glDrawElements(GL_LINES, 24, GL_UNSIGNED_INT, (void*)(36 * sizeof(GLuint)));
+        glBindVertexArray(0);
+
+        // Re-enable depth writing
+        glDepthMask(GL_TRUE);
+
+        // Disable blending after rendering edges
+        glDisable(GL_BLEND);
+    }
+
+    // Destructor to clean up resources
+    ~Object3D() {
+        glDeleteVertexArrays(1, &VAO);
+        glDeleteBuffers(1, &VBO);
+        glDeleteBuffers(1, &EBO);
+    }
+
+private:
+    GLuint VAO, VBO, EBO;
+
+    void setupMesh() {
+        // Vertex data for a unit cube (scaled later)
+        float vertices[] = {
+            // Positions             // Colors
+            -0.5f, -0.5f, -0.5f,     color.x, color.y, color.z, // 0
+             0.5f, -0.5f, -0.5f,     color.x, color.y, color.z, // 1
+             0.5f,  0.5f, -0.5f,     color.x, color.y, color.z, // 2
+            -0.5f,  0.5f, -0.5f,     color.x, color.y, color.z, // 3
+            -0.5f, -0.5f,  0.5f,     color.x, color.y, color.z, // 4
+             0.5f, -0.5f,  0.5f,     color.x, color.y, color.z, // 5
+             0.5f,  0.5f,  0.5f,     color.x, color.y, color.z, // 6
+            -0.5f,  0.5f,  0.5f,     color.x, color.y, color.z, // 7
+
+            // Edge vertices
+            -0.5f, -0.5f, -0.5f,     0.0f, 0.0f, 0.0f, // 8
+             0.5f, -0.5f, -0.5f,     0.0f, 0.0f, 0.0f, // 9
+             0.5f,  0.5f, -0.5f,     0.0f, 0.0f, 0.0f, // 10
+            -0.5f,  0.5f, -0.5f,     0.0f, 0.0f, 0.0f, // 11
+            -0.5f, -0.5f,  0.5f,     0.0f, 0.0f, 0.0f, // 12
+             0.5f, -0.5f,  0.5f,     0.0f, 0.0f, 0.0f, // 13
+             0.5f,  0.5f,  0.5f,     0.0f, 0.0f, 0.0f, // 14
+            -0.5f,  0.5f,  0.5f,     0.0f, 0.0f, 0.0f  // 15
+        };
+
+        unsigned int indices[] = {
+            // Face indices (12 triangles for 6 faces)
+            0, 1, 2,
+            2, 3, 0,
+            4, 5, 6,
+            6, 7, 4,
+            0, 3, 7,
+            7, 4, 0,
+            1, 5, 6,
+            6, 2, 1,
+            0, 1, 5,
+            5, 4, 0,
+            3, 2, 6,
+            6, 7, 3,
+
+            // Edge indices (12 lines for edges)
+            8, 9,
+            9, 10,
+            10, 11,
+            11, 8,
+            12, 13,
+            13, 14,
+            14, 15,
+            15, 12,
+            8, 12,
+            9, 13,
+            10, 14,
+            11, 15
+        };
+
+        // Create VAO, VBO, EBO
+        glGenVertexArrays(1, &VAO);
+        glGenBuffers(1, &VBO);
+        glGenBuffers(1, &EBO);
+
+        glBindVertexArray(VAO);
+
+        // Vertex Buffer Object
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+        // Element Buffer Object
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+
+        // Position attribute
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+
+        // Color attribute
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+        glEnableVertexAttribArray(1);
+
+        glBindVertexArray(0);
+    }
+};
+
 int main() {
     // --- SFML Window Setup ---
     sf::ContextSettings settings;
     settings.depthBits = 24;
     settings.stencilBits = 8;
-    settings.antialiasingLevel = 16; // Enable 16x AA for smoother visuals
+    settings.antialiasingLevel = 16; // High-quality anti-aliasing
     settings.majorVersion = 3;
     settings.minorVersion = 3;
     settings.attributeFlags = sf::ContextSettings::Core; // Core profile
@@ -132,121 +323,64 @@ int main() {
     }
 #endif
 
-    // --- Shader Program ---
-    // Vertex shader
-    GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    {
-        const GLchar* vss = vertexShaderSource.c_str();
-        glShaderSource(vertexShader, 1, &vss, NULL);
-        glCompileShader(vertexShader);
-    }
-    checkOpenGLError("Compile Vertex Shader");
+    // --- Shader Programs ---
 
-    GLint success;
-    GLchar infoLog[512];
-    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
-    if (!success) {
-        glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-        std::cerr << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
-    }
+    // Function to compile a shader and check for errors
+    auto compileShader = [](GLenum type, const std::string& source) -> GLuint {
+        GLuint shader = glCreateShader(type);
+        const GLchar* src = source.c_str();
+        glShaderSource(shader, 1, &src, NULL);
+        glCompileShader(shader);
 
-    // Fragment shader
-    GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    {
-        const GLchar* fss = fragmentShaderSource.c_str();
-        glShaderSource(fragmentShader, 1, &fss, NULL);
-        glCompileShader(fragmentShader);
-    }
-    checkOpenGLError("Compile Fragment Shader");
+        // Check compilation status
+        GLint success;
+        glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+        if (!success) {
+            GLchar infoLog[512];
+            glGetShaderInfoLog(shader, 512, NULL, infoLog);
+            std::string shaderType = (type == GL_VERTEX_SHADER) ? "VERTEX" : "FRAGMENT";
+            std::cerr << "ERROR::SHADER::" << shaderType << "::COMPILATION_FAILED\n" << infoLog << std::endl;
+        }
 
-    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
-    if (!success) {
-        glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-        std::cerr << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
-    }
-
-    // Link program
-    GLuint shaderProgram = glCreateProgram();
-    glAttachShader(shaderProgram, vertexShader);
-    glAttachShader(shaderProgram, fragmentShader);
-    glLinkProgram(shaderProgram);
-    checkOpenGLError("Link Shader Program");
-
-    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
-    if (!success) {
-        glGetProgramInfoLog(shaderProgram, 512, NULL, infoLog);
-        std::cerr << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
-    }
-
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);
-
-    GLint modelLoc = glGetUniformLocation(shaderProgram, "model");
-    GLint viewLoc = glGetUniformLocation(shaderProgram, "view");
-    GLint projectionLoc = glGetUniformLocation(shaderProgram, "projection");
-
-    // --- Cube Data ---
-    float cubeVertices[] = {
-        // Positions        // Colors
-        -0.5f, -0.5f, -0.5f,  1.0f, 0.0f, 0.0f, // Red
-         0.5f, -0.5f, -0.5f,  0.0f, 1.0f, 0.0f, // Green
-         0.5f,  0.5f, -0.5f,  0.0f, 0.0f, 1.0f, // Blue
-        -0.5f,  0.5f, -0.5f,  1.0f, 1.0f, 0.0f, // Yellow
-
-        -0.5f, -0.5f,  0.5f,  0.0f, 1.0f, 1.0f, // Cyan
-         0.5f, -0.5f,  0.5f,  1.0f, 0.0f, 1.0f, // Magenta
-         0.5f,  0.5f,  0.5f,  1.0f, 0.5f, 0.5f, // Pink-ish
-        -0.5f,  0.5f,  0.5f,  0.5f, 1.0f, 0.5f  // Lime-ish
+        return shader;
     };
 
-    unsigned int cubeIndices[] = {
-        // Back face
-        0, 1, 2,
-        2, 3, 0,
-        // Front face
-        4, 5, 6,
-        6, 7, 4,
-        // Left face
-        0, 3, 7,
-        7, 4, 0,
-        // Right face
-        1, 5, 6,
-        6, 2, 1,
-        // Bottom face
-        0, 1, 5,
-        5, 4, 0,
-        // Top face
-        3, 2, 6,
-        6, 7, 3
+    // Function to link shaders into a program and check for errors
+    auto createShaderProgram = [&](const std::string& vertexSrc, const std::string& fragmentSrc) -> GLuint {
+        GLuint vertexShader = compileShader(GL_VERTEX_SHADER, vertexSrc);
+        GLuint fragmentShader = compileShader(GL_FRAGMENT_SHADER, fragmentSrc);
+
+        GLuint program = glCreateProgram();
+        glAttachShader(program, vertexShader);
+        glAttachShader(program, fragmentShader);
+        glLinkProgram(program);
+
+        // Check linking status
+        GLint success;
+        glGetProgramiv(program, GL_LINK_STATUS, &success);
+        if (!success) {
+            GLchar infoLog[512];
+            glGetProgramInfoLog(program, 512, NULL, infoLog);
+            std::cerr << "ERROR::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
+        }
+
+        // Shaders can be deleted after linking
+        glDeleteShader(vertexShader);
+        glDeleteShader(fragmentShader);
+
+        return program;
     };
 
-    // Create VAO for cube
-    GLuint cubeVAO;
-    glGenVertexArrays(1, &cubeVAO);
-    glBindVertexArray(cubeVAO);
+    // Create shader programs
+    GLuint opaqueShaderProgram = createShaderProgram(opaqueVertexShaderSource, opaqueFragmentShaderSource);
+    GLuint transparentShaderProgram = createShaderProgram(opaqueVertexShaderSource, transparentFragmentShaderSource);
 
-    // Create VBO for cube
-    GLuint cubeVBO;
-    glGenBuffers(1, &cubeVBO);
-    glBindBuffer(GL_ARRAY_BUFFER, cubeVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
+    // Get uniform locations for view and projection matrices (common for both shader programs)
+    GLint opaque_viewLoc = glGetUniformLocation(opaqueShaderProgram, "view");
+    GLint opaque_projectionLoc = glGetUniformLocation(opaqueShaderProgram, "projection");
 
-    // Create EBO for cube
-    GLuint cubeEBO;
-    glGenBuffers(1, &cubeEBO);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, cubeEBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cubeIndices), cubeIndices, GL_STATIC_DRAW);
-
-    // Vertex attribute pointers for cube
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
-    checkOpenGLError("Cube position attrib");
-
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-    checkOpenGLError("Cube color attrib");
-
-    glBindVertexArray(0);
+    GLint transparent_viewLoc = glGetUniformLocation(transparentShaderProgram, "view");
+    GLint transparent_projectionLoc = glGetUniformLocation(transparentShaderProgram, "projection");
 
     // --- Grid Data ---
     std::vector<float> gridVertices = generateGridVertices(10);
@@ -305,8 +439,15 @@ int main() {
     // --- Projection Matrix ---
     glm::mat4 projection = glm::perspective(glm::radians(45.0f), 800.f / 600.f, 0.1f, 100.0f);
 
-    // Enable depth test
+    // --- OpenGL State Setup ---
+    // Enable depth test and multisampling
     glEnable(GL_DEPTH_TEST);
+    glEnable(GL_MULTISAMPLE); // Enable multisampling for anti-aliasing
+
+    // Note: GL_LINE_SMOOTH is removed to prevent GL_INVALID_VALUE errors in Core Profile
+
+    // Set line width to 1.0f to prevent GL_INVALID_VALUE
+    glLineWidth(1.0f); // Safe default in Core Profile
 
     // Initialize delta clock
     sf::Clock deltaClock;
@@ -314,7 +455,20 @@ int main() {
     // Define movement speed (units per second)
     float velocity = 5.0f;
 
-    sf::Clock clock; // to rotate the cube over time
+    // --- YAML Config Loading ---
+    YAML::Node config;
+    try {
+        config = YAML::LoadFile("config.yaml");
+    } catch (const YAML::Exception& e) {
+        std::cerr << "Error loading config.yaml: " << e.what() << std::endl;
+        return -1;
+    }
+
+    // Create Object3D instances
+    std::vector<Object3D*> objects;
+    for (const auto& objectConfig : config["objects"]) {
+        objects.push_back(new Object3D(objectConfig));
+    }
 
     while (window.isOpen()) {
         // --- Calculate delta time ---
@@ -424,53 +578,58 @@ int main() {
         cameraUpAdjusted = glm::normalize(glm::cross(cameraRight, cameraFront));
 
         // --- Transformations ---
-        glm::mat4 model = glm::mat4(1.0f);
-        // Move and rotate the cube over time
-        model = glm::translate(model, glm::vec3(0.0f, 1.0f, -5.0f));
-        float angle = clock.getElapsedTime().asSeconds();
-        model = glm::rotate(model, angle * glm::radians(20.0f), glm::vec3(1.0f, 1.0f, 0.0f));
-
         // Update view matrix
-        glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, 
+        glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront,
                                      (enableCameraUpAdjusted ? cameraUpAdjusted : cameraUp));
 
         // --- Drawing ---
         glClearColor(1.0f, 1.0f, 1.0f, 1.0f); // White background
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glUseProgram(shaderProgram);
+        // --- Draw Objects ---
+        for (const auto& object : objects) {
+            object->draw(opaqueShaderProgram, transparentShaderProgram, view, projection);
+        }
 
-        // Set uniform matrices
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(model));
+        // --- Draw Grid ---
+        // Use the opaque shader for the grid (fully opaque)
+        glUseProgram(opaqueShaderProgram);
+
+        // Set uniforms
+        GLint modelLoc = glGetUniformLocation(opaqueShaderProgram, "model");
+        GLint viewLoc = glGetUniformLocation(opaqueShaderProgram, "view");
+        GLint projectionLoc = glGetUniformLocation(opaqueShaderProgram, "projection");
+
+        glm::mat4 gridModel = glm::mat4(1.0f);
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(gridModel));
         glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projection));
 
-        // Draw the cube
-        glBindVertexArray(cubeVAO);
-        glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
-        checkOpenGLError("Draw Cube");
+        // Disable blending for grid rendering
+        glDisable(GL_BLEND);
 
-        // Draw the grid (model = identity for the grid)
-        glm::mat4 gridModel = glm::mat4(1.0f);
-        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(gridModel));
+        // Bind grid VAO and draw lines
         glBindVertexArray(gridVAO);
-        // Draw using GL_LINES
         glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(gridVertices.size() / 6)); // each vertex has 6 floats (pos + color)
         checkOpenGLError("Draw Grid");
-
         glBindVertexArray(0);
+
         window.display();
     }
 
     // --- Cleanup ---
-    glDeleteVertexArrays(1, &cubeVAO);
-    glDeleteBuffers(1, &cubeVBO);
-    glDeleteBuffers(1, &cubeEBO);
+    // Delete objects (this will call their destructors and clean up OpenGL resources)
+    for (const auto& object : objects) {
+        delete object;
+    }
 
+    // Delete grid resources
     glDeleteVertexArrays(1, &gridVAO);
     glDeleteBuffers(1, &gridVBO);
 
-    glDeleteProgram(shaderProgram);
+    // Delete shader programs
+    glDeleteProgram(opaqueShaderProgram);
+    glDeleteProgram(transparentShaderProgram);
 
     return 0;
 }

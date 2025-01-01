@@ -1237,4 +1237,38 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: \
   /usr/local/include/glm/gtx/../geometric.hpp \
   /usr/local/include/glm/gtx/string_cast.inl \
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/iostream \
-  /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/istream
+  /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/istream \
+  /usr/local/include/yaml-cpp/yaml.h \
+  /usr/local/include/yaml-cpp/parser.h /usr/local/include/yaml-cpp/dll.h \
+  /usr/local/include/yaml-cpp/emitter.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/sstream \
+  /usr/local/include/yaml-cpp/binary.h \
+  /usr/local/include/yaml-cpp/emitterdef.h \
+  /usr/local/include/yaml-cpp/emittermanip.h \
+  /usr/local/include/yaml-cpp/null.h \
+  /usr/local/include/yaml-cpp/ostream_wrapper.h \
+  /usr/local/include/yaml-cpp/emitterstyle.h \
+  /usr/local/include/yaml-cpp/stlemitter.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/list \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/set \
+  /usr/local/include/yaml-cpp/exceptions.h \
+  /usr/local/include/yaml-cpp/mark.h \
+  /usr/local/include/yaml-cpp/noexcept.h \
+  /usr/local/include/yaml-cpp/traits.h \
+  /usr/local/include/yaml-cpp/node/node.h \
+  /usr/local/include/yaml-cpp/node/detail/iterator_fwd.h \
+  /usr/local/include/yaml-cpp/node/ptr.h \
+  /usr/local/include/yaml-cpp/node/type.h \
+  /usr/local/include/yaml-cpp/node/impl.h \
+  /usr/local/include/yaml-cpp/node/detail/memory.h \
+  /usr/local/include/yaml-cpp/node/detail/node.h \
+  /usr/local/include/yaml-cpp/node/detail/node_ref.h \
+  /usr/local/include/yaml-cpp/node/detail/node_data.h \
+  /usr/local/include/yaml-cpp/node/detail/node_iterator.h \
+  /usr/local/include/yaml-cpp/node/iterator.h \
+  /usr/local/include/yaml-cpp/node/detail/iterator.h \
+  /usr/local/include/yaml-cpp/node/convert.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/valarray \
+  /usr/local/include/yaml-cpp/node/detail/impl.h \
+  /usr/local/include/yaml-cpp/node/parse.h \
+  /usr/local/include/yaml-cpp/node/emit.h

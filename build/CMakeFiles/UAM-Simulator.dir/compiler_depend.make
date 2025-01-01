@@ -719,6 +719,7 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/iterator \
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/limits \
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/limits.h \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/list \
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/locale \
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/locale.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/map \
@@ -729,6 +730,8 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/optional \
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/ostream \
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/ratio \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/set \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/sstream \
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/stddef.h \
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/stdexcept \
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/stdint.h \
@@ -744,6 +747,7 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/typeinfo \
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/unordered_map \
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/utility \
+  /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/valarray \
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/variant \
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/vector \
   /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/version \
@@ -1242,8 +1246,69 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
   /usr/local/include/glm/vec2.hpp \
   /usr/local/include/glm/vec3.hpp \
   /usr/local/include/glm/vec4.hpp \
-  /usr/local/include/glm/vector_relational.hpp
+  /usr/local/include/glm/vector_relational.hpp \
+  /usr/local/include/yaml-cpp/binary.h \
+  /usr/local/include/yaml-cpp/dll.h \
+  /usr/local/include/yaml-cpp/emitter.h \
+  /usr/local/include/yaml-cpp/emitterdef.h \
+  /usr/local/include/yaml-cpp/emittermanip.h \
+  /usr/local/include/yaml-cpp/emitterstyle.h \
+  /usr/local/include/yaml-cpp/exceptions.h \
+  /usr/local/include/yaml-cpp/mark.h \
+  /usr/local/include/yaml-cpp/node/convert.h \
+  /usr/local/include/yaml-cpp/node/detail/impl.h \
+  /usr/local/include/yaml-cpp/node/detail/iterator.h \
+  /usr/local/include/yaml-cpp/node/detail/iterator_fwd.h \
+  /usr/local/include/yaml-cpp/node/detail/memory.h \
+  /usr/local/include/yaml-cpp/node/detail/node.h \
+  /usr/local/include/yaml-cpp/node/detail/node_data.h \
+  /usr/local/include/yaml-cpp/node/detail/node_iterator.h \
+  /usr/local/include/yaml-cpp/node/detail/node_ref.h \
+  /usr/local/include/yaml-cpp/node/emit.h \
+  /usr/local/include/yaml-cpp/node/impl.h \
+  /usr/local/include/yaml-cpp/node/iterator.h \
+  /usr/local/include/yaml-cpp/node/node.h \
+  /usr/local/include/yaml-cpp/node/parse.h \
+  /usr/local/include/yaml-cpp/node/ptr.h \
+  /usr/local/include/yaml-cpp/node/type.h \
+  /usr/local/include/yaml-cpp/noexcept.h \
+  /usr/local/include/yaml-cpp/null.h \
+  /usr/local/include/yaml-cpp/ostream_wrapper.h \
+  /usr/local/include/yaml-cpp/parser.h \
+  /usr/local/include/yaml-cpp/stlemitter.h \
+  /usr/local/include/yaml-cpp/traits.h \
+  /usr/local/include/yaml-cpp/yaml.h
 
+
+/usr/local/include/yaml-cpp/yaml.h:
+
+/usr/local/include/yaml-cpp/stlemitter.h:
+
+/usr/local/include/yaml-cpp/parser.h:
+
+/usr/local/include/yaml-cpp/ostream_wrapper.h:
+
+/usr/local/include/yaml-cpp/null.h:
+
+/usr/local/include/yaml-cpp/node/ptr.h:
+
+/usr/local/include/yaml-cpp/node/node.h:
+
+/usr/local/include/yaml-cpp/node/emit.h:
+
+/usr/local/include/yaml-cpp/node/detail/node_data.h:
+
+/usr/local/include/yaml-cpp/node/detail/memory.h:
+
+/usr/local/include/yaml-cpp/node/detail/iterator_fwd.h:
+
+/usr/local/include/yaml-cpp/node/detail/iterator.h:
+
+/usr/local/include/yaml-cpp/node/detail/impl.h:
+
+/usr/local/include/yaml-cpp/emitter.h:
+
+/usr/local/include/yaml-cpp/binary.h:
 
 /usr/local/include/glm/packing.hpp:
 
@@ -1301,8 +1366,6 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 
 /usr/local/include/glm/detail/type_vec2.inl:
 
-/usr/local/include/glm/detail/type_mat4x3.inl:
-
 /usr/local/include/glm/detail/type_mat3x4.inl:
 
 /usr/local/include/glm/detail/type_mat3x2.inl:
@@ -1357,6 +1420,8 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 
 /usr/local/include/glm/ext/vector_double2.hpp:
 
+/usr/local/include/yaml-cpp/node/impl.h:
+
 /usr/local/include/glm/ext/vector_bool3_precision.hpp:
 
 /usr/local/include/glm/ext/quaternion_trigonometric.inl:
@@ -1370,6 +1435,8 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 /usr/local/include/glm/ext/matrix_transform.inl:
 
 /usr/local/include/glm/ext/matrix_float4x4_precision.hpp:
+
+/usr/local/include/yaml-cpp/node/detail/node_ref.h:
 
 /usr/local/include/glm/ext/matrix_float4x3_precision.hpp:
 
@@ -1427,6 +1494,8 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 
 /usr/local/include/glm/ext/vector_uint1.hpp:
 
+/usr/local/include/yaml-cpp/node/convert.h:
+
 /usr/local/include/glm/ext/vector_relational.hpp:
 
 /usr/local/include/glm/ext/vector_int4.hpp:
@@ -1442,6 +1511,8 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 /usr/local/include/glm/ext/quaternion_geometric.hpp:
 
 /usr/local/include/glm/exponential.hpp:
+
+/usr/local/include/yaml-cpp/node/parse.h:
 
 /usr/local/include/glm/detail/type_vec3.hpp:
 
@@ -1543,6 +1614,8 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 
 /usr/local/include/SFML/Graphics/RenderTarget.hpp:
 
+/usr/local/include/yaml-cpp/node/type.h:
+
 /usr/local/include/SFML/Graphics/Rect.inl:
 
 /usr/local/include/SFML/Graphics/PrimitiveType.hpp:
@@ -1583,6 +1656,8 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/xlocale/_stdio.h:
 
+/usr/local/include/yaml-cpp/node/detail/node.h:
+
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/xlocale/_ctype.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/wctype.h:
@@ -1596,6 +1671,10 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/sys/stdio.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/sys/qos.h:
+
+/usr/local/include/yaml-cpp/node/iterator.h:
+
+/usr/local/include/yaml-cpp/emitterstyle.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/sys/cdefs.h:
 
@@ -1695,9 +1774,11 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/sys/_pthread/_pthread_rwlock_t.h:
 
-/Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/sys/_pthread/_pthread_mutex_t.h:
+/Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/sys/_pthread/_pthread_once_t.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/sys/_pthread/_pthread_mutexattr_t.h:
+
+/Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/sys/_pthread/_pthread_mutex_t.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/AvailabilityInternalLegacy.h:
 
@@ -1836,6 +1917,8 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/cstring:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/cstdio:
+
+/usr/local/include/yaml-cpp/dll.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/cstdarg:
 
@@ -2183,6 +2266,8 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/machine/_types.h:
 
+/usr/local/include/yaml-cpp/emitterdef.h:
+
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__algorithm/ranges_min_element.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__ranges/from_range.h:
@@ -2285,6 +2370,8 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__memory/raw_storage_iterator.h:
 
+/usr/local/include/yaml-cpp/emittermanip.h:
+
 /usr/local/include/glm/ext/matrix_double2x2_precision.hpp:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__type_traits/type_list.h:
@@ -2352,6 +2439,8 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__type_traits/make_unsigned.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__memory/allocator.h:
+
+/Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/valarray:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__algorithm/mismatch.h:
 
@@ -2595,6 +2684,12 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__algorithm/is_partitioned.h:
 
+/usr/local/include/SFML/Window/GlResource.hpp:
+
+/Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__type_traits/is_reference_wrapper.h:
+
+/Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/list:
+
 /usr/local/include/SFML/Graphics/Transform.hpp:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__concepts/derived_from.h:
@@ -2697,8 +2792,6 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__format/format_error.h:
 
-/Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/sys/_pthread/_pthread_once_t.h:
-
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__algorithm/pstl_backends/cpu_backends/fill.h:
 
 /usr/local/include/glm/detail/type_mat2x3.hpp:
@@ -2714,6 +2807,8 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__charconv/to_chars_result.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__bit_reference:
+
+/usr/local/include/yaml-cpp/node/detail/node_iterator.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/sys/_types/_u_int.h:
 
@@ -2927,6 +3022,8 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__algorithm/stable_partition.h:
 
+/usr/local/include/yaml-cpp/mark.h:
+
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__algorithm/remove_copy_if.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/stdio.h:
@@ -3020,6 +3117,8 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/_locale.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__algorithm/in_found_result.h:
+
+/usr/local/include/yaml-cpp/exceptions.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__algorithm/ranges_make_heap.h:
 
@@ -3203,6 +3302,8 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__algorithm/ranges_adjacent_find.h:
 
+/usr/local/include/yaml-cpp/noexcept.h:
+
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__type_traits/conditional.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__algorithm/is_permutation.h:
@@ -3281,9 +3382,13 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__algorithm/ranges_replace_copy_if.h:
 
+/Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/sstream:
+
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__utility/is_pointer_in_range.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/System/Library/Frameworks/OpenGL.framework/Headers/gl3.h:
+
+/usr/local/include/yaml-cpp/traits.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__type_traits/is_literal_type.h:
 
@@ -3298,6 +3403,10 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 /usr/local/include/glm/detail/_vectorize.hpp:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__algorithm/partition.h:
+
+/usr/local/include/glm/detail/type_mat4x3.inl:
+
+/Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/set:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__algorithm/find_end.h:
 
@@ -3420,10 +3529,6 @@ CMakeFiles/UAM-Simulator.dir/src/main.cpp.o: /Users/maxdemu/Documents/HAW\ Hambu
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__algorithm/in_out_out_result.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__algorithm/fill.h:
-
-/usr/local/include/SFML/Window/GlResource.hpp:
-
-/Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/c++/v1/__type_traits/is_reference_wrapper.h:
 
 /Library/Developer/CommandLineTools/SDKs/MacOSX14.4.sdk/usr/include/sys/_types/_uintptr_t.h:
 
