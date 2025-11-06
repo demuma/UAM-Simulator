@@ -1,4 +1,4 @@
-// Fixed lighting and shadow version
+// UAM Simulator - Follow-cam fixed (no inversion), 3D LiDAR beams anchored to drone
 #include <SFML/Graphics.hpp>
 #include <SFML/OpenGL.hpp>
 #include <glm/glm.hpp>
@@ -10,13 +10,102 @@
 #include <variant>
 #include <yaml-cpp/yaml.h>
 #include <cmath>
+#include <memory>
+#include <algorithm>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-// Generate grid vertices
-std::vector<float> generateGridVertices(int halfSize = 10) {
+// ===================== Utilities / Math =====================
+struct Pose {
+    glm::vec3 pos{0.f, 1.0f, 0.f};
+    float yaw = 0.f;   // degrees (CCW around +Y when seen from above)
+    float pitch = 0.f; // degrees
+};
+
+// Forward from yaw/pitch: yaw=0 -> +X, yaw=90 -> +Z. CCW is left turn.
+static inline glm::vec3 forwardFrom(const Pose& p){
+    float y = glm::radians(p.yaw), pit = glm::radians(p.pitch);
+    return glm::normalize(glm::vec3(std::cos(y)*std::cos(pit),
+                                    std::sin(pit),
+                                    std::sin(y)*std::cos(pit)));
+}
+
+// ===================== Drone =====================
+struct Drone {
+    Pose p;
+    float speed    = 6.f;    // m/s
+    float yawRate  = 90.f;   // deg/s
+    float climb    = 3.f;    // m/s
+    glm::vec3 bodyScale{0.5f, 0.15f, 0.5f}; // for body & shadow
+};
+
+// Revert updateDrone back to its original state:
+static inline void updateDrone(Drone& d, float dt) {
+    glm::vec3 fwd = forwardFrom(d.p);
+    glm::vec3 right = glm::normalize(glm::cross(fwd, {0,1,0}));
+    
+    glm::vec3 move(0);
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W)) move += fwd;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S)) move -= fwd;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A)) move -= right;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D)) move += right;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::C)) d.p.pos.y += d.climb * dt;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::V)) d.p.pos.y -= d.climb * dt;
+
+    // Q/E control the drone's rotation directly (Q=LEFT/CCW, E=RIGHT/CW)
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Q)) d.p.yaw -= d.yawRate * dt; 
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::E)) d.p.yaw += d.yawRate * dt;
+
+    if (glm::length(move) > 0.f) d.p.pos += glm::normalize(move) * (d.speed * dt);
+}
+
+static inline void drawDroneBox(const Pose& p, const glm::vec3& scale){
+    glPushMatrix();
+    glTranslatef(p.pos.x, p.pos.y, p.pos.z);
+    glRotatef(-p.yaw, 0.f, 1.f, 0.f);
+    glRotatef(p.pitch, 1.f, 0.f, 0.f);
+    glScalef(scale.x, scale.y, scale.z);
+
+    glDisable(GL_LIGHTING);
+    glColor3f(0.15f, 0.15f, 0.15f);
+    glBegin(GL_QUADS);
+      // top
+      glVertex3f(-0.5f, 0.5f, -0.5f); glVertex3f(0.5f, 0.5f, -0.5f);
+      glVertex3f(0.5f, 0.5f,  0.5f);  glVertex3f(-0.5f, 0.5f,  0.5f);
+      // bottom
+      glVertex3f(-0.5f,-0.5f, -0.5f); glVertex3f(0.5f,-0.5f, -0.5f);
+      glVertex3f(0.5f,-0.5f,  0.5f);  glVertex3f(-0.5f,-0.5f,  0.5f);
+      // sides
+      glVertex3f(-0.5f,-0.5f,-0.5f); glVertex3f(-0.5f, 0.5f,-0.5f);
+      glVertex3f( 0.5f, 0.5f,-0.5f); glVertex3f( 0.5f,-0.5f,-0.5f);
+
+      glVertex3f(-0.5f,-0.5f, 0.5f); glVertex3f(-0.5f, 0.5f, 0.5f);
+      glVertex3f( 0.5f, 0.5f, 0.5f); glVertex3f( 0.5f,-0.5f, 0.5f);
+
+      glVertex3f(-0.5f,-0.5f,-0.5f); glVertex3f(-0.5f,-0.5f, 0.5f);
+      glVertex3f(-0.5f, 0.5f, 0.5f);  glVertex3f(-0.5f, 0.5f,-0.5f);
+
+      glVertex3f(0.5f,-0.5f,-0.5f);  glVertex3f(0.5f,-0.5f, 0.5f);
+      glVertex3f(0.5f, 0.5f, 0.5f);   glVertex3f(0.5f, 0.5f,-0.5f);
+    glEnd();
+
+    // simple arms
+    glLineWidth(2.f);
+    glBegin(GL_LINES);
+    glColor3f(1.0f,0.0f,0.0f);
+    glVertex3f(-0.7f, 0.f, 0.f); glVertex3f(0.7f, 0.f, 0.f);
+    glColor3f(0.4f,0.4f,0.4f);
+      glVertex3f(0.f, 0.f,-0.7f);   glVertex3f(0.f, 0.f, 0.7f);
+    glEnd();
+    glLineWidth(1.f);
+
+    glPopMatrix();
+}
+
+// ===================== Grid =====================
+static std::vector<float> generateGridVertices(int halfSize = 10) {
     std::vector<float> vertices;
     float lineColor[3] = {0.7f, 0.7f, 0.7f};
     float centerColor[3] = {0.3f, 0.3f, 0.3f};
@@ -29,7 +118,7 @@ std::vector<float> generateGridVertices(int halfSize = 10) {
 
         vertices.insert(vertices.end(), {
             static_cast<float>(x), 0.0f, static_cast<float>(-halfSize), r, g, b,
-            static_cast<float>(x), 0.0f, static_cast<float>(halfSize), r, g, b
+            static_cast<float>(x), 0.0f, static_cast<float>(halfSize),  r, g, b
         });
     }
 
@@ -41,102 +130,117 @@ std::vector<float> generateGridVertices(int halfSize = 10) {
 
         vertices.insert(vertices.end(), {
             static_cast<float>(-halfSize), 0.0f, static_cast<float>(z), r, g, b,
-            static_cast<float>(halfSize), 0.0f, static_cast<float>(z), r, g, b
+            static_cast<float>(halfSize),  0.0f, static_cast<float>(z), r, g, b
         });
     }
-
     return vertices;
 }
 
-// Draw a visual indicator for the light source
-void drawLightSource(const glm::vec3& lightPos) {
+// ===================== Light gizmo =====================
+static void drawLightSource(const glm::vec3& lightPos) {
     glDisable(GL_LIGHTING);
     glPushMatrix();
     glTranslatef(lightPos.x, lightPos.y, lightPos.z);
-    
-    // Draw a bright yellow sphere
+
     glColor3f(1.0f, 1.0f, 0.0f);
-    
-    // Simple icosphere approximation
     const int segments = 8;
     const float radius = 0.3f;
-    
+
     for (int i = 0; i < segments; i++) {
         float theta1 = (float)i * 2.0f * M_PI / segments;
         float theta2 = (float)(i + 1) * 2.0f * M_PI / segments;
-        
+
         glBegin(GL_TRIANGLE_STRIP);
         for (int j = 0; j <= segments/2; j++) {
             float phi = (float)j * M_PI / (segments/2);
-            
-            float x1 = radius * sin(phi) * cos(theta1);
-            float y1 = radius * cos(phi);
-            float z1 = radius * sin(phi) * sin(theta1);
-            
-            float x2 = radius * sin(phi) * cos(theta2);
-            float y2 = radius * cos(phi);
-            float z2 = radius * sin(phi) * sin(theta2);
-            
+
+            float x1 = radius * std::sin(phi) * std::cos(theta1);
+            float y1 = radius * std::cos(phi);
+            float z1 = radius * std::sin(phi) * std::sin(theta1);
+
+            float x2 = radius * std::sin(phi) * std::cos(theta2);
+            float y2 = radius * std::cos(phi);
+            float z2 = radius * std::sin(phi) * std::sin(theta2);
+
             glVertex3f(x1, y1, z1);
             glVertex3f(x2, y2, z2);
         }
         glEnd();
     }
-    
     glPopMatrix();
 }
 
-// Simple planar shadow projection
-void drawSimpleShadow(const glm::vec3& objectPos, const glm::vec3& objectScale, const glm::vec3& lightPos) {
-    // Only draw shadow if light is above the object
-    if (lightPos.y <= objectPos.y) return;
-    
+// ===================== Drone projected shadow (rot-aware) =====================
+static inline bool projectPointToGround(const glm::vec3& L, const glm::vec3& P, float yPlane, glm::vec3& out) {
+    glm::vec3 dir = P - L;
+    if (std::abs(dir.y) < 1e-6f) return false;
+    float t = (yPlane - L.y) / dir.y;
+    if (t <= 0.f) return false;
+    out = L + t * dir;
+    return true;
+}
+
+static std::vector<glm::vec3> convexHullXZ(std::vector<glm::vec3> pts) {
+    if (pts.size() <= 3) return pts;
+    std::sort(pts.begin(), pts.end(), [](const glm::vec3& a, const glm::vec3& b){
+        if (a.x != b.x) return a.x < b.x;
+        return a.z < b.z;
+    });
+    auto cross2D = [](const glm::vec3& O, const glm::vec3& A, const glm::vec3& B){
+        return (A.x - O.x)*(B.z - O.z) - (A.z - O.z)*(B.x - O.x);
+    };
+    std::vector<glm::vec3> H; H.reserve(pts.size()*2);
+    for (const auto& p : pts){
+        while (H.size() >= 2 && cross2D(H[H.size()-2], H.back(), p) <= 0.f) H.pop_back();
+        H.push_back(p);
+    }
+    size_t t = H.size()+1;
+    for (int i=(int)pts.size()-2; i>=0; --i){
+        const auto& p = pts[i];
+        while (H.size() >= t && cross2D(H[H.size()-2], H.back(), p) <= 0.f) H.pop_back();
+        H.push_back(p);
+    }
+    H.pop_back();
+    return H;
+}
+
+static void drawDroneProjectedShadow(const Drone& d, const glm::vec3& lightPos) {
+    glm::mat4 M(1.0f);
+    M = glm::translate(M, d.p.pos);
+    M = glm::rotate(M, glm::radians(-d.p.yaw),   glm::vec3(0,1,0));
+    M = glm::rotate(M, glm::radians(d.p.pitch), glm::vec3(1,0,0));
+    M = glm::scale(M, d.bodyScale);
+
+    glm::vec3 corners[8] = {
+        {-0.5f,-0.5f,-0.5f}, {0.5f,-0.5f,-0.5f}, {0.5f, 0.5f,-0.5f}, {-0.5f, 0.5f,-0.5f},
+        {-0.5f,-0.5f, 0.5f}, {0.5f,-0.5f, 0.5f}, {0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f}
+    };
+
+    std::vector<glm::vec3> proj; proj.reserve(8);
+    float groundY = 0.01f;
+    for (auto& c : corners) {
+        glm::vec4 w = M * glm::vec4(c, 1.0f);
+        glm::vec3 worldPt(w.x, w.y, w.z), p;
+        if (projectPointToGround(lightPos, worldPt, groundY, p)) proj.push_back(p);
+    }
+    if (proj.size() < 3) return;
+
+    auto hull = convexHullXZ(proj);
+    if (hull.size() < 3) return;
+
     glDisable(GL_LIGHTING);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDepthMask(GL_FALSE);  // Don't write to depth buffer
-    
-    glColor4f(0.0f, 0.0f, 0.0f, 0.3f);  // Semi-transparent black
-    
-    glPushMatrix();
-    
-    // Calculate shadow position on ground (Y = 0.01 to avoid z-fighting)
-    float shadowY = 0.01f;
-    
-    // Calculate shadow offset based on light direction
-    glm::vec3 lightDir = objectPos - lightPos;
-    float t = (shadowY - lightPos.y) / lightDir.y;  // Parameter for ray-plane intersection
-    
-    float shadowX = lightPos.x + t * lightDir.x;
-    float shadowZ = lightPos.z + t * lightDir.z;
-    
-    // Transform to shadow position
-    glTranslatef(shadowX, shadowY, shadowZ);
-    
-    // Scale shadow based on object size and light height
-    float lightHeight = lightPos.y - shadowY;
-    float objectHeight = objectPos.y;
-    float shadowScale = 1.0f + (objectHeight / lightHeight) * 0.5f; // Shadow gets bigger with height
-    
-    glScalef(objectScale.x * shadowScale, 0.01f, objectScale.z * shadowScale);
-    
-    // Draw flattened shadow
-    glBegin(GL_QUADS);
-    glVertex3f(-0.5f, 0.0f, -0.5f);
-    glVertex3f( 0.5f, 0.0f, -0.5f);
-    glVertex3f( 0.5f, 0.0f,  0.5f);
-    glVertex3f(-0.5f, 0.0f,  0.5f);
+    glDepthMask(GL_FALSE);
+    glColor4f(0.f, 0.f, 0.f, 0.35f);
+    glBegin(GL_TRIANGLE_FAN);
+        for (auto& p : hull) glVertex3f(p.x, groundY, p.z);
     glEnd();
-    
-    glPopMatrix();
-    
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
 }
 
-
-
-// Simple Object3D with fixed lighting
+// ===================== Buildings =====================
 class Object3D {
 public:
     std::string name;
@@ -161,272 +265,322 @@ public:
         glPushMatrix();
         glTranslatef(position.x, position.y, position.z);
         glScalef(dimensions.x, dimensions.y, dimensions.z);
-        
-        // Draw cube faces with manual lighting calculation
+
         drawLitCube(lightPos);
-        
-        // Draw edges
         drawCubeEdges();
-        
         glPopMatrix();
     }
-    
+
     void drawShadow(const glm::vec3& lightPos) {
-        drawSimpleShadow(position, dimensions, lightPos);
+        // simple, cheap shadow quad under building center
+        glm::vec3 objectScale = dimensions;
+        glDisable(GL_LIGHTING);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
+        glColor4f(0.0f, 0.0f, 0.0f, 0.18f);
+        glm::vec3 center = position, p;
+        if (projectPointToGround(lightPos, center, 0.01f, p)) {
+            glPushMatrix();
+            float lightHeight = std::max(0.1f, lightPos.y - 0.01f);
+            float shadowScale = 1.0f + (center.y / lightHeight) * 0.5f;
+            glTranslatef(p.x, 0.01f, p.z);
+            glScalef(objectScale.x * shadowScale, 0.01f, objectScale.z * shadowScale);
+            glBegin(GL_QUADS);
+            glVertex3f(-0.5f, 0.0f, -0.5f);
+            glVertex3f( 0.5f, 0.0f, -0.5f);
+            glVertex3f( 0.5f, 0.0f,  0.5f);
+            glVertex3f(-0.5f, 0.0f,  0.5f);
+            glEnd();
+            glPopMatrix();
+        }
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
     }
 
 private:
     void drawLitCube(const glm::vec3& lightPos) {
-        glDisable(GL_LIGHTING);  // We'll do lighting manually
-        
-        // Get world position of cube center
-        glm::vec4 worldPos = glm::vec4(position, 1.0f);
-        
-        // Define face normals and vertices
-        struct Face {
-            glm::vec3 normal;
-            glm::vec3 vertices[4];
-        };
-        
+        glDisable(GL_LIGHTING);
+
+        struct Face { glm::vec3 normal; glm::vec3 v[4]; };
         Face faces[6] = {
-            // Front face (+Z)
-            { glm::vec3(0, 0, 1), {
-                glm::vec3(-0.5f, -0.5f,  0.5f), glm::vec3( 0.5f, -0.5f,  0.5f),
-                glm::vec3( 0.5f,  0.5f,  0.5f), glm::vec3(-0.5f,  0.5f,  0.5f)
-            }},
-            // Back face (-Z)
-            { glm::vec3(0, 0, -1), {
-                glm::vec3( 0.5f, -0.5f, -0.5f), glm::vec3(-0.5f, -0.5f, -0.5f),
-                glm::vec3(-0.5f,  0.5f, -0.5f), glm::vec3( 0.5f,  0.5f, -0.5f)
-            }},
-            // Top face (+Y)
-            { glm::vec3(0, 1, 0), {
-                glm::vec3(-0.5f,  0.5f, -0.5f), glm::vec3(-0.5f,  0.5f,  0.5f),
-                glm::vec3( 0.5f,  0.5f,  0.5f), glm::vec3( 0.5f,  0.5f, -0.5f)
-            }},
-            // Bottom face (-Y)
-            { glm::vec3(0, -1, 0), {
-                glm::vec3(-0.5f, -0.5f, -0.5f), glm::vec3( 0.5f, -0.5f, -0.5f),
-                glm::vec3( 0.5f, -0.5f,  0.5f), glm::vec3(-0.5f, -0.5f,  0.5f)
-            }},
-            // Right face (+X)
-            { glm::vec3(1, 0, 0), {
-                glm::vec3( 0.5f, -0.5f, -0.5f), glm::vec3( 0.5f,  0.5f, -0.5f),
-                glm::vec3( 0.5f,  0.5f,  0.5f), glm::vec3( 0.5f, -0.5f,  0.5f)
-            }},
-            // Left face (-X)
-            { glm::vec3(-1, 0, 0), {
-                glm::vec3(-0.5f, -0.5f,  0.5f), glm::vec3(-0.5f,  0.5f,  0.5f),
-                glm::vec3(-0.5f,  0.5f, -0.5f), glm::vec3(-0.5f, -0.5f, -0.5f)
-            }}
+            { {0,0, 1}, {{-0.5f,-0.5f, 0.5f},{ 0.5f,-0.5f, 0.5f},{ 0.5f, 0.5f, 0.5f},{-0.5f, 0.5f, 0.5f}} },
+            { {0,0,-1}, {{ 0.5f,-0.5f,-0.5f},{-0.5f,-0.5f,-0.5f},{-0.5f, 0.5f,-0.5f},{ 0.5f, 0.5f,-0.5f}} },
+            { {0,1, 0}, {{-0.5f, 0.5f,-0.5f},{-0.5f, 0.5f, 0.5f},{ 0.5f, 0.5f, 0.5f},{ 0.5f, 0.5f,-0.5f}} },
+            { {0,-1,0}, {{-0.5f,-0.5f,-0.5f},{ 0.5f,-0.5f,-0.5f},{ 0.5f,-0.5f, 0.5f},{-0.5f,-0.5f, 0.5f}} },
+            { {1,0, 0}, {{ 0.5f,-0.5f,-0.5f},{ 0.5f, 0.5f,-0.5f},{ 0.5f, 0.5f, 0.5f},{ 0.5f,-0.5f, 0.5f}} },
+            { {-1,0,0}, {{-0.5f,-0.5f, 0.5f},{-0.5f, 0.5f, 0.5f},{-0.5f, 0.5f,-0.5f},{-0.5f,-0.5f,-0.5f}} }
         };
-        
+
         glBegin(GL_QUADS);
-        
         for (int i = 0; i < 6; i++) {
-            // Calculate lighting for this face
-            glm::vec3 faceWorldPos = position; // Center of face (approximation)
-            glm::vec3 lightDir = glm::normalize(lightPos - faceWorldPos);
-            
-            // Transform normal to world space (ignoring scale for simplicity)
-            glm::vec3 worldNormal = faces[i].normal;
-            
-            // Calculate diffuse lighting
-            float diffuse = std::max(0.0f, glm::dot(worldNormal, lightDir));
-            
-            // Apply lighting to base color
-            float ambient = 0.3f;  // Ambient lighting
-            float lightIntensity = ambient + diffuse * 0.7f;
-            lightIntensity = std::min(lightIntensity, 1.0f);
-            
-            glColor3f(color.x * lightIntensity, color.y * lightIntensity, color.z * lightIntensity);
-            
-            // Draw the face
-            for (int j = 0; j < 4; j++) {
-                glVertex3f(faces[i].vertices[j].x, faces[i].vertices[j].y, faces[i].vertices[j].z);
-            }
+            glm::vec3 lightDir = glm::normalize(lightPos - position);
+            float diffuse = std::max(0.0f, glm::dot(faces[i].normal, lightDir));
+            float ambient = 0.3f;
+            float li = std::min(1.0f, ambient + diffuse * 0.7f);
+            glColor3f(color.x * li, color.y * li, color.z * li);
+            for (int j = 0; j < 4; j++)
+                glVertex3f(faces[i].v[j].x, faces[i].v[j].y, faces[i].v[j].z);
         }
-        
         glEnd();
     }
-    
+
     void drawCubeEdges() {
         glDisable(GL_LIGHTING);
         glColor4f(0.0f, 0.0f, 0.0f, 0.8f);
         glLineWidth(1.5f);
-        
         glBegin(GL_LINES);
-        
-        // Front face edges
-        glVertex3f(-0.5f, -0.5f,  0.5f); glVertex3f( 0.5f, -0.5f,  0.5f);
-        glVertex3f( 0.5f, -0.5f,  0.5f); glVertex3f( 0.5f,  0.5f,  0.5f);
-        glVertex3f( 0.5f,  0.5f,  0.5f); glVertex3f(-0.5f,  0.5f,  0.5f);
-        glVertex3f(-0.5f,  0.5f,  0.5f); glVertex3f(-0.5f, -0.5f,  0.5f);
-        
-        // Back face edges
-        glVertex3f(-0.5f, -0.5f, -0.5f); glVertex3f( 0.5f, -0.5f, -0.5f);
-        glVertex3f( 0.5f, -0.5f, -0.5f); glVertex3f( 0.5f,  0.5f, -0.5f);
-        glVertex3f( 0.5f,  0.5f, -0.5f); glVertex3f(-0.5f,  0.5f, -0.5f);
-        glVertex3f(-0.5f,  0.5f, -0.5f); glVertex3f(-0.5f, -0.5f, -0.5f);
-        
-        // Connecting edges
-        glVertex3f(-0.5f, -0.5f, -0.5f); glVertex3f(-0.5f, -0.5f,  0.5f);
-        glVertex3f( 0.5f, -0.5f, -0.5f); glVertex3f( 0.5f, -0.5f,  0.5f);
-        glVertex3f( 0.5f,  0.5f, -0.5f); glVertex3f( 0.5f,  0.5f,  0.5f);
-        glVertex3f(-0.5f,  0.5f, -0.5f); glVertex3f(-0.5f,  0.5f,  0.5f);
-        
+        // Front
+        glVertex3f(-0.5f,-0.5f, 0.5f); glVertex3f( 0.5f,-0.5f, 0.5f);
+        glVertex3f( 0.5f,-0.5f, 0.5f); glVertex3f( 0.5f, 0.5f, 0.5f);
+        glVertex3f( 0.5f, 0.5f, 0.5f); glVertex3f(-0.5f, 0.5f, 0.5f);
+        glVertex3f(-0.5f, 0.5f, 0.5f); glVertex3f(-0.5f,-0.5f, 0.5f);
+        // Back
+        glVertex3f(-0.5f,-0.5f,-0.5f); glVertex3f( 0.5f,-0.5f,-0.5f);
+        glVertex3f( 0.5f,-0.5f,-0.5f); glVertex3f( 0.5f, 0.5f,-0.5f);
+        glVertex3f( 0.5f, 0.5f,-0.5f); glVertex3f(-0.5f, 0.5f,-0.5f);
+        glVertex3f(-0.5f, 0.5f,-0.5f); glVertex3f(-0.5f,-0.5f,-0.5f);
+        // Sides
+        glVertex3f(-0.5f,-0.5f,-0.5f); glVertex3f(-0.5f,-0.5f, 0.5f);
+        glVertex3f( 0.5f,-0.5f,-0.5f); glVertex3f( 0.5f,-0.5f, 0.5f);
+        glVertex3f( 0.5f, 0.5f,-0.5f); glVertex3f( 0.5f, 0.5f, 0.5f);
+        glVertex3f(-0.5f, 0.5f,-0.5f); glVertex3f(-0.5f, 0.5f, 0.5f);
         glEnd();
         glLineWidth(1.0f);
     }
 };
 
+// ===================== Ray / LiDAR =====================
+struct AABB { glm::vec3 mn, mx; int id; };
+
+static inline AABB makeAABB(const Object3D& o){
+    glm::vec3 h = 0.5f * o.dimensions;
+    return { o.position - h, o.position + h, 0 };
+}
+
+static inline bool rayAABB(const glm::vec3& ro, const glm::vec3& rd, const AABB& b, float tMax, float& tHit) {
+    float tmin = 0.001f, tmax = tMax;
+    for (int i=0;i<3;++i){
+        float d = rd[i]; if (std::abs(d) < 1e-6f) d = (d<0 ? -1e-6f : 1e-6f);
+        float invD = 1.f / d;
+        float t0 = (b.mn[i] - ro[i]) * invD;
+        float t1 = (b.mx[i] - ro[i]) * invD;
+        if (invD < 0.f) std::swap(t0, t1);
+        tmin = t0 > tmin ? t0 : tmin;
+        tmax = t1 < tmax ? t1 : tmax;
+        if (tmax <= tmin) return false;
+    }
+    tHit = tmin;
+    return true;
+}
+
+struct Hit3D { bool ok; float range; glm::vec3 point; int objId; glm::vec3 dir; };
+
+static inline std::vector<Hit3D> simulateLidar3D(const Pose& p,
+                                   const std::vector<AABB>& world,
+                                   int beamsH, int beamsV,
+                                   float fovH_deg, float fovV_deg,
+                                   float maxR)
+{
+    std::vector<Hit3D> hits;
+    hits.reserve(beamsH * beamsV);
+
+    // Basis from DRONE pose (not camera!)
+    float yaw=glm::radians(p.yaw), pit=glm::radians(p.pitch);
+    glm::vec3 F = glm::normalize(glm::vec3(std::cos(yaw)*std::cos(pit), std::sin(pit), std::sin(yaw)*std::cos(pit)));
+    glm::vec3 R = glm::normalize(glm::cross(F, {0,1,0}));
+    glm::vec3 U = glm::normalize(glm::cross(R, F));
+
+    for (int j=0; j<beamsV; ++j) {
+        float v = ((j/(float)(beamsV-1)) - 0.5f) * glm::radians(fovV_deg);
+        for (int i=0; i<beamsH; ++i) {
+            float h = ((i/(float)(beamsH-1)) - 0.5f) * glm::radians(fovH_deg);
+            glm::vec3 dir = glm::normalize(F + std::tan(h)*R + std::tan(v)*U);
+
+            float best = maxR; int bestId=-1;
+            for (const auto& b : world){
+                float th; if (rayAABB(p.pos, dir, b, maxR, th)) {
+                    if (th < best) { best = th; bestId = b.id; }
+                }
+            }
+            if (bestId>=0) hits.push_back({true, best, p.pos + dir*best, bestId, dir});
+            else           hits.push_back({false, maxR, p.pos + dir*maxR, -1, dir});
+        }
+    }
+    return hits;
+}
+
+// Draw beams as thin red lines for hits (misses omitted)
+static inline void drawLidar3DBeams(const Pose& p, const std::vector<Hit3D>& hits) {
+    glLineWidth(1.0f);
+    glColor3f(1.0f, 0.0f, 0.0f);
+    glBegin(GL_LINES);
+    for (const auto& h : hits) {
+        if (!h.ok) continue;
+        glVertex3f(p.pos.x, p.pos.y, p.pos.z);
+        glVertex3f(h.point.x, h.point.y, h.point.z);
+    }
+    glEnd();
+    glLineWidth(1.0f);
+}
+
+// (Optional) draw hit points, if you want a point cloud as well
+static inline void drawLidar3DPoints(const std::vector<Hit3D>& hits, float maxR) {
+    glPointSize(3.f);
+    glBegin(GL_POINTS);
+    for (const auto& h : hits) {
+        if (!h.ok) continue;
+        float t = h.range / maxR;
+        glColor3f(1.f - t, 0.f, t);
+        glVertex3f(h.point.x, h.point.y, h.point.z);
+    }
+    glEnd();
+    glPointSize(1.f);
+}
+
+// ===================== main =====================
 int main() {
-    std::cout << "=== UAM Simulator - Fixed Lighting ===" << std::endl;
-    
-    // Window settings
+    std::cout << "=== UAM Simulator - FollowCam fix + LiDAR anchored to drone ===\n";
+
+    // Window
     sf::ContextSettings settings;
     settings.depthBits = 24;
     settings.stencilBits = 8;
     settings.antiAliasingLevel = 4;
     settings.majorVersion = 2;
     settings.minorVersion = 1;
-    
+
     sf::RenderWindow window(sf::VideoMode({1200, 900}),
-                           "UAM Simulator - Fixed Shadows", 
-                           sf::Style::Default,
-                           sf::State::Windowed,
-                           settings);
-    
-    bool activeResult = window.setActive(true);
-    if (!activeResult) {
-        std::cerr << "Warning: Could not activate OpenGL context!" << std::endl;
-    }
-    
+                            "UAM Simulator",
+                            sf::Style::Default,
+                            sf::State::Windowed,
+                            settings);
+
+    if (!window.setActive(true))
+        std::cerr << "Warning: Could not activate OpenGL context!\n";
+
     window.setVerticalSyncEnabled(true);
-    
-    std::cout << "OpenGL Version: " << glGetString(GL_VERSION) << std::endl;
-    std::cout << "Renderer: " << glGetString(GL_RENDERER) << std::endl;
-    
-    // OpenGL settings
+    std::cout << "OpenGL Version: " << glGetString(GL_VERSION) << "\n";
+    std::cout << "Renderer: " << glGetString(GL_RENDERER) << "\n";
+
+    // GL state
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    
+
     // Load objects
     std::vector<std::unique_ptr<Object3D>> objects;
-    
     try {
         YAML::Node config = YAML::LoadFile("config.yaml");
         for (const auto& objectConfig : config["objects"]) {
             objects.push_back(std::make_unique<Object3D>(objectConfig));
         }
-        std::cout << "Loaded " << objects.size() << " objects" << std::endl;
-    } catch (const YAML::Exception& e) {
-        std::cerr << "Error loading config.yaml, creating default objects..." << std::endl;
-        
-        YAML::Node defaultObj1;
-        defaultObj1["name"] = "RedCube";
-        defaultObj1["position"] = std::vector<float>{0, 1, 0};
-        defaultObj1["dimensions"] = std::vector<float>{1, 1, 1};
-        defaultObj1["color"] = std::vector<float>{1.0f, 0.0f, 0.0f};
-        objects.push_back(std::make_unique<Object3D>(defaultObj1));
-        
-        YAML::Node defaultObj2;
-        defaultObj2["name"] = "GreenCube";
-        defaultObj2["position"] = std::vector<float>{3, 1, 2};
-        defaultObj2["dimensions"] = std::vector<float>{1, 2, 1};
-        defaultObj2["color"] = std::vector<float>{0.0f, 1.0f, 0.0f};
-        objects.push_back(std::make_unique<Object3D>(defaultObj2));
-        
-        YAML::Node defaultObj3;
-        defaultObj3["name"] = "BlueCube";
-        defaultObj3["position"] = std::vector<float>{-2, 0.5f, 1};
-        defaultObj3["dimensions"] = std::vector<float>{1, 0.5f, 1};
-        defaultObj3["color"] = std::vector<float>{0.0f, 0.0f, 1.0f};
-        objects.push_back(std::make_unique<Object3D>(defaultObj3));
+        std::cout << "Loaded " << objects.size() << " objects\n";
+    } catch (const YAML::Exception& ) {
+        std::cerr << "Error loading config.yaml, creating default objects...\n";
+        YAML::Node o1; o1["name"]="RedCube";   o1["position"]=std::vector<float>{0,1,0};  o1["dimensions"]=std::vector<float>{1,1,1};   o1["color"]=std::vector<float>{1,0,0};
+        YAML::Node o2; o2["name"]="GreenCube"; o2["position"]=std::vector<float>{3,1,2};  o2["dimensions"]=std::vector<float>{1,2,1};   o2["color"]=std::vector<float>{0,1,0};
+        YAML::Node o3; o3["name"]="BlueCube";  o3["position"]=std::vector<float>{-2,0.5f,1}; o3["dimensions"]=std::vector<float>{1,0.5f,1}; o3["color"]=std::vector<float>{0,0,1};
+        objects.push_back(std::make_unique<Object3D>(o1));
+        objects.push_back(std::make_unique<Object3D>(o2));
+        objects.push_back(std::make_unique<Object3D>(o3));
     }
 
-    // Generate grid
+    // Static AABBs for buildings
+    std::vector<AABB> worldAABBs;
+    worldAABBs.reserve(objects.size());
+    for (size_t i=0;i<objects.size(); ++i) {
+        auto box = makeAABB(*objects[i]);
+        box.id = (int)i;
+        worldAABBs.push_back(box);
+    }
+
+    // Grid
     std::vector<float> gridVertices = generateGridVertices(10);
 
-    // Light and shadow settings
+    // Light & shadow
     glm::vec3 lightPosition(5.0f, 8.0f, 3.0f);
     bool showLightSource = true;
     bool enableShadows = true;
 
-    // Camera setup
-    glm::vec3 cameraPos = glm::vec3(0.0f, 3.0f, 8.0f);
-    glm::vec3 cameraUp = glm::vec3(0.0f, 1.0f, 0.0f);
-    float yaw = -90.0f;
-    float pitch = -10.0f; // Look down slightly
+    // Camera state (free-cam values used only when followDrone=false)
+    glm::vec3 cameraPos  = glm::vec3(0.0f, 3.0f, 8.0f);
+    glm::vec3 cameraUp   = glm::vec3(0.0f, 1.0f, 0.0f);
+    float yaw   = -90.0f;
+    float pitch = -10.0f;
     const float yawSpeed = 60.0f;
     bool enableMouseLook = false;
+    bool followDrone = true;
     sf::Vector2i windowCenter(window.getSize().x / 2, window.getSize().y / 2);
 
-    auto updateCameraFront = [&](float yaw, float pitch) -> glm::vec3 {
+    auto updateCameraFront = [&](float yaw_, float pitch_) -> glm::vec3 {
         glm::vec3 front;
-        front.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
-        front.y = sin(glm::radians(pitch));
-        front.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
+        front.x = std::cos(glm::radians(yaw_)) * std::cos(glm::radians(pitch_));
+        front.y = std::sin(glm::radians(pitch_));
+        front.z = std::sin(glm::radians(yaw_)) * std::cos(glm::radians(pitch_));
         return glm::normalize(front);
     };
-    
     glm::vec3 cameraFront = updateCameraFront(yaw, pitch);
     glm::vec3 cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
     float velocity = 5.0f;
+
+    // Drone: start looking along -Z like your original camera feel
+    Drone drone;
+    drone.p.yaw = -90.f;
 
     sf::Clock deltaClock;
     sf::Clock fpsCounter;
     int frameCount = 0;
 
-    // Event handlers
-    const auto onClose = [&](const sf::Event::Closed&) {
-        window.close();
-    };
-    
+    // Events
+    const auto onClose = [&](const sf::Event::Closed&) { window.close(); };
+
     const auto onKeyPressed = [&](const sf::Event::KeyPressed& keyPressed) {
-        if (keyPressed.scancode == sf::Keyboard::Scancode::M) {
+        using sc = sf::Keyboard::Scancode;
+        if (keyPressed.scancode == sc::M) {
             enableMouseLook = !enableMouseLook;
             window.setMouseCursorVisible(!enableMouseLook);
-            if (enableMouseLook) {
-                sf::Mouse::setPosition(windowCenter, window);
-            }
-            std::cout << "Mouse look: " << (enableMouseLook ? "ON" : "OFF") << std::endl;
+            if (enableMouseLook) sf::Mouse::setPosition(windowCenter, window);
+            std::cout << "Mouse look: " << (enableMouseLook ? "ON" : "OFF") << "\n";
         }
-        else if (keyPressed.scancode == sf::Keyboard::Scancode::B) {
+        else if (keyPressed.scancode == sc::B) {
             showLightSource = !showLightSource;
-            std::cout << "Light source visible: " << (showLightSource ? "ON" : "OFF") << std::endl;
+            std::cout << "Light gizmo: " << (showLightSource ? "ON" : "OFF") << "\n";
         }
-        else if (keyPressed.scancode == sf::Keyboard::Scancode::H) {
+        else if (keyPressed.scancode == sc::H) {
             enableShadows = !enableShadows;
-            std::cout << "Shadows: " << (enableShadows ? "ON" : "OFF") << std::endl;
+            std::cout << "Shadows: " << (enableShadows ? "ON" : "OFF") << "\n";
         }
-        else if (keyPressed.scancode == sf::Keyboard::Scancode::Escape) {
+        else if (keyPressed.scancode == sc::F) {
+            followDrone = !followDrone;
+            std::cout << "Follow drone: " << (followDrone ? "ON" : "OFF") << "\n";
+        }
+        else if (keyPressed.scancode == sc::Escape) {
             window.close();
         }
-        
-        // Light movement
+
+        // Light control
         float lightSpeed = 0.5f;
-        if (keyPressed.scancode == sf::Keyboard::Scancode::Up) lightPosition.z -= lightSpeed;
-        if (keyPressed.scancode == sf::Keyboard::Scancode::Down) lightPosition.z += lightSpeed;
-        if (keyPressed.scancode == sf::Keyboard::Scancode::Left) lightPosition.x -= lightSpeed;
-        if (keyPressed.scancode == sf::Keyboard::Scancode::Right) lightPosition.x += lightSpeed;
-        if (keyPressed.scancode == sf::Keyboard::Scancode::PageUp) lightPosition.y += lightSpeed;
-        if (keyPressed.scancode == sf::Keyboard::Scancode::PageDown) lightPosition.y -= lightSpeed;
+        if (keyPressed.scancode == sc::Up)      lightPosition.z -= lightSpeed;
+        if (keyPressed.scancode == sc::Down)    lightPosition.z += lightSpeed;
+        if (keyPressed.scancode == sc::Left)    lightPosition.x -= lightSpeed;
+        if (keyPressed.scancode == sc::Right)   lightPosition.x += lightSpeed;
+        if (keyPressed.scancode == sc::PageUp)  lightPosition.y += lightSpeed;
+        if (keyPressed.scancode == sc::PageDown)lightPosition.y -= lightSpeed;
     };
-    
+
     const auto onMouseMoved = [&](const sf::Event::MouseMoved& mouseMoved) {
-        if (enableMouseLook) {
+        if (enableMouseLook && !followDrone) {
             float xoffset = static_cast<float>(mouseMoved.position.x - windowCenter.x);
             float yoffset = static_cast<float>(windowCenter.y - mouseMoved.position.y);
             sf::Mouse::setPosition(windowCenter, window);
 
             float sensitivity = 0.1f;
-            yaw += xoffset * sensitivity;
+            yaw   += xoffset * sensitivity;
             pitch += yoffset * sensitivity;
 
-            if (pitch > 89.0f) pitch = 89.0f;
+            if (pitch > 89.0f)  pitch = 89.0f;
             if (pitch < -89.0f) pitch = -89.0f;
 
             cameraFront = updateCameraFront(yaw, pitch);
@@ -434,112 +588,142 @@ int main() {
         }
     };
 
-    std::cout << "\n=== Controls ===" << std::endl;
-    std::cout << "WASD: Move camera" << std::endl;
-    std::cout << "C/V: Move up/down" << std::endl;
-    std::cout << "Q/E: Rotate left/right" << std::endl;
-    std::cout << "M: Toggle mouse look" << std::endl;
-    std::cout << "Arrow Keys: Move light source" << std::endl;
-    std::cout << "PageUp/PageDown: Move light up/down" << std::endl;
-    std::cout << "B: Toggle light source visibility" << std::endl;
-    std::cout << "H: Toggle shadows" << std::endl;
-    std::cout << "ESC: Exit" << std::endl;
+    std::cout << "\n=== Controls ===\n";
+    std::cout << "WASD: Drone move   Q/E: Yaw (Q=left/CCW)   C/V: Up/Down\n";
+    std::cout << "F: Toggle follow camera   M: Toggle mouse look (free cam)\n";
+    std::cout << "Arrows + PgUp/PgDn: Move light   B/H: Gizmo/Shadows   ESC: Exit\n";
+
+    // LiDAR config
+    const int   beamsH   = 2048;
+    const int   beamsV   = 128;
+    const float fovH_deg = 360.f;
+    const float fovV_deg = 45.f;
+    const float lidarMax = 250.f;
 
     // Main loop
+    float dtSmooth = 1.f/60.f;
     while (window.isOpen()) {
-        float deltaTime = deltaClock.restart().asSeconds();
-        if (deltaTime > 0.1f) deltaTime = 0.1f;
+        float dt = deltaClock.restart().asSeconds();
+        dt = std::min(dt, 0.1f);
+        dtSmooth = 0.9f*dtSmooth + 0.1f*dt;
 
-        // Handle events
-        window.handleEvents(onClose,
-                           [](const sf::Event::Resized&){},
-                           onKeyPressed,
-                           [](const sf::Event::KeyReleased&){},
-                           [](const sf::Event::MouseButtonPressed&){},
-                           [](const sf::Event::MouseButtonReleased&){},
-                           onMouseMoved,
-                           [](const sf::Event::MouseWheelScrolled&){});
+        window.handleEvents(
+            onClose,
+            [](const sf::Event::Resized&){},
+            onKeyPressed,
+            [](const sf::Event::KeyReleased&){},
+            [](const sf::Event::MouseButtonPressed&){},
+            [](const sf::Event::MouseButtonReleased&){},
+            onMouseMoved,
+            [](const sf::Event::MouseWheelScrolled&){}
+        );
 
-        // Movement
-        glm::vec3 movement(0.0f);
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W)) movement += cameraFront;
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S)) movement -= cameraFront;
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A)) movement -= cameraRight;
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D)) movement += cameraRight;
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::C)) movement += cameraUp;
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::V)) movement -= cameraUp;
+        // Update drone pose first (so camera & LiDAR use the new pose)
+        
+        // Camera
+        if (!followDrone) {
+            // free-cam mode
+            glm::vec3 movement(0.0f);
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W)) movement += cameraFront;
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S)) movement -= cameraFront;
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A)) movement -= cameraRight;
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D)) movement += cameraRight;
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::C)) movement += cameraUp;
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::V)) movement -= cameraUp;
+            
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::E)) {
+                yaw += yawSpeed * dtSmooth; // keep free-cam E = right
+                cameraFront = updateCameraFront(yaw, pitch);
+                cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
+            }
+            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Q)) {
+                yaw -= yawSpeed * dtSmooth; // free-cam Q = left
+                cameraFront = updateCameraFront(yaw, pitch);
+                cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
+            }
+            
+            if (glm::length(movement) > 0.0f) {
+                movement = glm::normalize(movement) * velocity * dtSmooth;
+                cameraPos += movement;
+            }
+        } else {
+            updateDrone(drone, dtSmooth);
+            // FOLLOW MODE — deterministic, no smoothing, no inversion
+            // Use drone yaw to place camera directly behind it and look forward
+            const float followBack = 4.0f;
+            const float followUp   = 2.0f;
+            const float followLead = 2.0f;
 
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::E)) {
-            yaw += yawSpeed * deltaTime;
-            cameraFront = updateCameraFront(yaw, pitch);
-            cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
+            // Horizontal forward from *drone yaw* only (ignore drone pitch for camera placement)
+            float y = glm::radians(drone.p.yaw);
+            glm::vec3 F_cam(std::cos(y), 0.0f, std::sin(y)); F_cam = glm::normalize(F_cam);
+            glm::vec3 U(0,1,0);
+
+            cameraPos   = drone.p.pos - F_cam * followBack + U * followUp;
+            glm::vec3 target = drone.p.pos + F_cam * followLead;
+            
+            cameraFront = glm::normalize(target - cameraPos);
+            cameraRight = glm::normalize(glm::cross(cameraFront, U));
         }
-        if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Q)) {
-            yaw -= yawSpeed * deltaTime;
-            cameraFront = updateCameraFront(yaw, pitch);
-            cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
-        }
 
-        if (glm::length(movement) > 0.0f) {
-            movement = glm::normalize(movement) * velocity * deltaTime;
-            cameraPos += movement;
-        }
-
-        // Rendering
+        // Render
         glClearColor(0.8f, 0.9f, 1.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Set projection matrix
         glMatrixMode(GL_PROJECTION);
         glLoadIdentity();
         float aspectRatio = static_cast<float>(window.getSize().x) / static_cast<float>(window.getSize().y);
-        glm::mat4 projection = glm::perspective(glm::radians(45.0f), aspectRatio, 0.5f, 50.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(45.0f), aspectRatio, 0.5f, 80.0f);
         glLoadMatrixf(glm::value_ptr(projection));
 
-        // Set view matrix
         glMatrixMode(GL_MODELVIEW);
         glLoadIdentity();
         glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
         glLoadMatrixf(glm::value_ptr(view));
 
-        // Draw grid
+        // Grid
         glDisable(GL_LIGHTING);
         glBegin(GL_LINES);
-        for (size_t i = 0; i < gridVertices.size(); i += 6) {
-            glColor3f(gridVertices[i+3], gridVertices[i+4], gridVertices[i+5]);
-            glVertex3f(gridVertices[i], gridVertices[i+1], gridVertices[i+2]);
+        for (size_t i = 0; i + 11 < gridVertices.size(); i += 12) {
+            glColor3f(gridVertices[i+3],  gridVertices[i+4],  gridVertices[i+5]);
+            glVertex3f(gridVertices[i+0], gridVertices[i+1], gridVertices[i+2]);
+            glColor3f(gridVertices[i+9],  gridVertices[i+10], gridVertices[i+11]);
+            glVertex3f(gridVertices[i+6], gridVertices[i+7], gridVertices[i+8]);
         }
         glEnd();
 
-        // Draw shadows first (on the ground)
+        // Shadows
         if (enableShadows) {
-            for (const auto& object : objects) {
-                object->drawShadow(lightPosition);
-            }
+            for (const auto& object : objects) object->drawShadow(lightPosition);
+            drawDroneProjectedShadow(drone, lightPosition);
         }
 
-        // Draw objects with lighting
-        for (const auto& object : objects) {
-            object->draw(lightPosition);
-        }
+        // Buildings
+        for (const auto& object : objects) object->draw(lightPosition);
 
-        // Draw light source indicator
-        if (showLightSource) {
-            drawLightSource(lightPosition);
-        }
+        // Drone
+        drawDroneBox(drone.p, drone.bodyScale);
+
+        // Light
+        if (showLightSource) drawLightSource(lightPosition);
+
+        // LiDAR (anchored to the DRONE pose)
+        auto hits = simulateLidar3D(drone.p, worldAABBs, beamsH, beamsV, fovH_deg, fovV_deg, lidarMax);
+        // drawLidar3DBeams(drone.p, hits);
+        drawLidar3DPoints(hits, lidarMax); // optional
 
         window.display();
-        
-        // FPS counter
+
+        // FPS
         frameCount++;
         if (fpsCounter.getElapsedTime().asSeconds() >= 1.0f) {
-            std::cout << "FPS: " << frameCount << " | Light: (" 
-                      << lightPosition.x << ", " << lightPosition.y << ", " << lightPosition.z << ")" << std::endl;
+            std::cout << "FPS: " << frameCount << " | Light: ("
+                      << lightPosition.x << ", " << lightPosition.y << ", " << lightPosition.z << ")\n";
             frameCount = 0;
             fpsCounter.restart();
         }
     }
 
-    std::cout << "Exiting successfully!" << std::endl;
+    std::cout << "Exiting successfully!\n";
     return 0;
 }
