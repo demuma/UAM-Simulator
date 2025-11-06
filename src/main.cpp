@@ -298,40 +298,51 @@ public:
         glDisable(GL_BLEND);
     }
 
-    static void drawProjectedShadow(const Object3D& obj, const glm::vec3& lightPos) {
-    glm::mat4 M(1.0f);
-    M = glm::translate(M, obj.position);
-    M = glm::rotate(M, glm::radians(0.f),   glm::vec3(0,1,0));
-    M = glm::rotate(M, glm::radians(0.f), glm::vec3(1,0,0));
+    // Replace your Object3D::drawProjectedShadow with this
+    static void drawProjectedShadow(const Object3D& obj,
+                                    const glm::vec3& lightPos,
+                                    float groundY = 0.01f){
+        // Model matrix: translate · (optional rotate) · scale
+        glm::mat4 M(1.0f);
+        M = glm::translate(M, obj.position);
 
-    glm::vec3 corners[8] = {
-        {-0.5f,-0.5f,-0.5f}, {0.5f,-0.5f,-0.5f}, {0.5f, 0.5f,-0.5f}, {-0.5f, 0.5f,-0.5f},
-        {-0.5f,-0.5f, 0.5f}, {0.5f,-0.5f, 0.5f}, {0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f}
-    };
+        // If you add rotation later, include it here, e.g.:
+        // M = glm::rotate(M, glm::radians(obj.yawDeg), glm::vec3(0,1,0));
 
-    std::vector<glm::vec3> proj; proj.reserve(8);
-    float groundY = 0.01f;
-    for (auto& c : corners) {
-        glm::vec4 w = M * glm::vec4(c, 1.0f);
-        glm::vec3 worldPt(w.x, w.y, w.z), p;
-        if (projectPointToGround(lightPos, worldPt, groundY, p)) proj.push_back(p);
-    }
-    if (proj.size() < 3) return;
+        M = glm::scale(M, obj.dimensions);
 
-    auto hull = convexHullXZ(proj);
-    if (hull.size() < 3) return;
+        // Unit cube corners in object space
+        static const glm::vec3 corners[8] = {
+            {-0.5f,-0.5f,-0.5f}, { 0.5f,-0.5f,-0.5f}, { 0.5f, 0.5f,-0.5f}, {-0.5f, 0.5f,-0.5f},
+            {-0.5f,-0.5f, 0.5f}, { 0.5f,-0.5f, 0.5f}, { 0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f}
+        };
 
-    glDisable(GL_LIGHTING);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDepthMask(GL_FALSE);
-    glColor4f(0.f, 0.f, 0.f, 0.35f);
-    glBegin(GL_TRIANGLE_FAN);
+        std::vector<glm::vec3> proj; proj.reserve(8);
+        for (auto& c : corners) {
+            glm::vec4 w = M * glm::vec4(c, 1.0f);      // world-space corner
+            glm::vec3 p;
+            if (projectPointToGround(lightPos, glm::vec3(w), groundY, p)) {
+                proj.push_back(p);
+            }
+        }
+        if (proj.size() < 3) return;
+
+        auto hull = convexHullXZ(proj);
+        if (hull.size() < 3) return;
+
+        glDisable(GL_LIGHTING);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
+        glColor4f(0.f, 0.f, 0.f, 0.35f);
+
+        glBegin(GL_TRIANGLE_FAN);
         for (auto& p : hull) glVertex3f(p.x, groundY, p.z);
-    glEnd();
-    glDepthMask(GL_TRUE);
-    glDisable(GL_BLEND);
-}
+        glEnd();
+
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+    }
 
 private:
     void drawLitCube(const glm::vec3& lightPos) {
@@ -841,7 +852,8 @@ int main() {
 
         // Shadows
         if (enableShadows) {
-            for (const auto& object : objects) object->drawShadow(lightPosition);
+            for (const auto& object : objects)
+                Object3D::drawProjectedShadow(*object, lightPosition, 0.01f);
             drawDroneProjectedShadow(drone, lightPosition);
         }
 
