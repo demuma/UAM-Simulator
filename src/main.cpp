@@ -298,6 +298,41 @@ public:
         glDisable(GL_BLEND);
     }
 
+    static void drawProjectedShadow(const Object3D& obj, const glm::vec3& lightPos) {
+    glm::mat4 M(1.0f);
+    M = glm::translate(M, obj.position);
+    M = glm::rotate(M, glm::radians(0.f),   glm::vec3(0,1,0));
+    M = glm::rotate(M, glm::radians(0.f), glm::vec3(1,0,0));
+
+    glm::vec3 corners[8] = {
+        {-0.5f,-0.5f,-0.5f}, {0.5f,-0.5f,-0.5f}, {0.5f, 0.5f,-0.5f}, {-0.5f, 0.5f,-0.5f},
+        {-0.5f,-0.5f, 0.5f}, {0.5f,-0.5f, 0.5f}, {0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f}
+    };
+
+    std::vector<glm::vec3> proj; proj.reserve(8);
+    float groundY = 0.01f;
+    for (auto& c : corners) {
+        glm::vec4 w = M * glm::vec4(c, 1.0f);
+        glm::vec3 worldPt(w.x, w.y, w.z), p;
+        if (projectPointToGround(lightPos, worldPt, groundY, p)) proj.push_back(p);
+    }
+    if (proj.size() < 3) return;
+
+    auto hull = convexHullXZ(proj);
+    if (hull.size() < 3) return;
+
+    glDisable(GL_LIGHTING);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDepthMask(GL_FALSE);
+    glColor4f(0.f, 0.f, 0.f, 0.35f);
+    glBegin(GL_TRIANGLE_FAN);
+        for (auto& p : hull) glVertex3f(p.x, groundY, p.z);
+    glEnd();
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+}
+
 private:
     void drawLitCube(const glm::vec3& lightPos) {
         glDisable(GL_LIGHTING);
@@ -438,6 +473,104 @@ static inline void drawLidar3DPoints(const std::vector<Hit3D>& hits, float maxR)
     glPointSize(1.f);
 }
 
+// ===================== RADAR (monostatic, simple) =====================
+struct RadarParams {
+    int   beamsH   = 60;
+    int   beamsV   = 8;
+    float fovH     = 90.f;   // deg
+    float fovV     = 20.f;   // deg
+    float maxR     = 150.f;  // m
+    float minR     = 2.0f;   // blind zone
+    float snr0     = 40.f;   // nominal at 1 m (dB-ish)
+    float snrMin   = 8.f;    // threshold
+};
+
+struct RadarDet {
+    bool ok;
+    float range;     // meters
+    float vr;        // radial velocity (m/s), + closing
+    float az;        // radians
+    float el;        // radians
+    glm::vec3 point; // world pos
+    int objId;
+};
+
+static inline std::vector<RadarDet> simulateRadar3D(
+        const Pose& sensorPose,
+        const glm::vec3& sensorVel, // drone velocity in world
+        const std::vector<AABB>& world,
+        const RadarParams& R)
+{
+    std::vector<RadarDet> dets;
+    dets.reserve(R.beamsH * R.beamsV);
+
+    float yaw = glm::radians(sensorPose.yaw), pit = glm::radians(sensorPose.pitch);
+    glm::vec3 F = glm::normalize(glm::vec3(std::cos(yaw)*std::cos(pit), std::sin(pit), std::sin(yaw)*std::cos(pit)));
+    glm::vec3 Rv = glm::normalize(glm::cross(F, glm::vec3(0,1,0)));
+    glm::vec3 U  = glm::normalize(glm::cross(Rv, F));
+
+    for (int v = 0; v < R.beamsV; ++v) {
+        float el = ((v / (float)(R.beamsV-1)) - 0.5f) * glm::radians(R.fovV);
+        for (int h = 0; h < R.beamsH; ++h) {
+            float az = ((h / (float)(R.beamsH-1)) - 0.5f) * glm::radians(R.fovH);
+
+            glm::vec3 dir = glm::normalize(F + std::tan(az)*Rv + std::tan(el)*U);
+
+            float best = R.maxR; int bestId = -1;
+            for (const auto& box : world) {
+                float th;
+                if (rayAABB(sensorPose.pos, dir, box, R.maxR, th)) {
+                    if (th < best && th > R.minR) { best = th; bestId = box.id; }
+                }
+            }
+
+            if (bestId < 0) {
+                dets.push_back({false, R.maxR, 0.f, az, el, sensorPose.pos + dir*R.maxR, -1});
+                continue;
+            }
+
+            // SNR ~ snr0 - 40 log10(R) (1/R^4 power law)
+            float snr = R.snr0 - 40.f * std::log10(std::max(best, 1e-2f));
+            if (snr < R.snrMin) {
+                dets.push_back({false, R.maxR, 0.f, az, el, sensorPose.pos + dir*R.maxR, -1});
+                continue;
+            }
+
+            // Radial velocity: projection of platform velocity onto LOS, + closing
+            float vr = glm::dot(sensorVel, dir) * (-1.0f); // flip to make +closing
+
+            dets.push_back({true, best, vr, az, el, sensorPose.pos + dir*best, bestId});
+        }
+    }
+    return dets;
+}
+
+static inline void drawRadarBeams(const Pose& p, const std::vector<RadarDet>& dets) {
+    // beams
+    glLineWidth(1.0f);
+    glColor3f(0.0f, 0.9f, 0.9f); // teal
+    glBegin(GL_LINES);
+    for (const auto& d : dets) {
+        if (!d.ok) continue;
+        glVertex3f(p.pos.x, p.pos.y, p.pos.z);
+        glVertex3f(d.point.x, d.point.y, d.point.z);
+    }
+    glEnd();
+    glLineWidth(1.0f);
+
+    // points colored by vr (red closing -> blue receding)
+    glPointSize(3.f);
+    glBegin(GL_POINTS);
+    for (const auto& d : dets) {
+        if (!d.ok) continue;
+        float t = glm::clamp((d.vr + 10.f) / 20.f, 0.f, 1.f); // map -10..+10 m/s
+        glColor3f(t, 0.f, 1.f - t);
+        glVertex3f(d.point.x, d.point.y, d.point.z);
+    }
+    glEnd();
+    glPointSize(1.f);
+}
+
 // ===================== main =====================
 int main() {
     std::cout << "=== UAM Simulator - FollowCam fix + LiDAR anchored to drone ===\n";
@@ -529,6 +662,12 @@ int main() {
     Drone drone;
     drone.p.yaw = -90.f;
 
+    // Radar + velocity tracking
+    RadarParams radarCfg;
+    glm::vec3   prevDronePos = drone.p.pos;
+    bool        prevPosValid = false;
+    glm::vec3   droneVel     = glm::vec3(0);
+
     sf::Clock deltaClock;
     sf::Clock fpsCounter;
     int frameCount = 0;
@@ -618,6 +757,8 @@ int main() {
             [](const sf::Event::MouseWheelScrolled&){}
         );
 
+        
+
         // Update drone pose first (so camera & LiDAR use the new pose)
         
         // Camera
@@ -648,6 +789,12 @@ int main() {
             }
         } else {
             updateDrone(drone, dtSmooth);
+            
+            // Drone velocity (for RADAR Doppler)
+            if (!prevPosValid) { prevPosValid = true; prevDronePos = drone.p.pos; }
+            droneVel     = (drone.p.pos - prevDronePos) / std::max(dtSmooth, 1e-4f);
+            prevDronePos = drone.p.pos;
+
             // FOLLOW MODE — deterministic, no smoothing, no inversion
             // Use drone yaw to place camera directly behind it and look forward
             const float followBack = 4.0f;
@@ -711,6 +858,10 @@ int main() {
         auto hits = simulateLidar3D(drone.p, worldAABBs, beamsH, beamsV, fovH_deg, fovV_deg, lidarMax);
         // drawLidar3DBeams(drone.p, hits);
         drawLidar3DPoints(hits, lidarMax); // optional
+
+        // RADAR (anchored to drone)
+        auto radarDets = simulateRadar3D(drone.p, droneVel, worldAABBs, radarCfg);
+        drawRadarBeams(drone.p, radarDets);
 
         window.display();
 
