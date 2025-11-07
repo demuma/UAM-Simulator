@@ -548,7 +548,8 @@ static inline std::vector<RadarDet> simulateRadar3D(
             }
 
             // Radial velocity: projection of platform velocity onto LOS, + closing
-            float vr = glm::dot(sensorVel, dir) * (-1.0f); // flip to make +closing
+            // float vr = glm::dot(sensorVel, dir) * (-1.0f); // flip to make +closing
+            float vr = glm::dot(sensorVel, dir); // flip to make +closing
 
             dets.push_back({true, best, vr, az, el, sensorPose.pos + dir*best, bestId});
         }
@@ -568,14 +569,16 @@ static inline void drawRadarBeams(const Pose& p, const std::vector<RadarDet>& de
     }
     glEnd();
     glLineWidth(1.0f);
+}
 
+static inline void drawRadarPoints(const std::vector<RadarDet>& dets) {
     // points colored by vr (red closing -> blue receding)
     glPointSize(3.f);
     glBegin(GL_POINTS);
     for (const auto& d : dets) {
         if (!d.ok) continue;
         float t = glm::clamp((d.vr + 10.f) / 20.f, 0.f, 1.f); // map -10..+10 m/s
-        glColor3f(t, 0.f, 1.f - t);
+        glColor3f(t, t +0.f, 1.f - t);
         glVertex3f(d.point.x, d.point.y, d.point.z);
     }
     glEnd();
@@ -674,6 +677,7 @@ int main() {
     drone.p.yaw = -90.f;
 
     // Radar + velocity tracking
+    bool enableRadar = false;
     RadarParams radarCfg;
     glm::vec3   prevDronePos = drone.p.pos;
     bool        prevPosValid = false;
@@ -682,6 +686,9 @@ int main() {
     sf::Clock deltaClock;
     sf::Clock fpsCounter;
     int frameCount = 0;
+
+    // Lidar
+    bool enableLidar = false;
 
     // Events
     const auto onClose = [&](const sf::Event::Closed&) { window.close(); };
@@ -708,6 +715,14 @@ int main() {
         }
         else if (keyPressed.scancode == sc::Escape) {
             window.close();
+        }
+        else if (keyPressed.scancode == sc::L) {
+            enableLidar = !enableLidar;
+            std::cout << "Lidar: " << (enableLidar ? "ON" : "OFF") << "\n";
+        }
+        else if (keyPressed.scancode == sc::R) {
+            enableRadar = !enableRadar;
+            std::cout << "Radar: " << (enableRadar ? "ON" : "OFF") << "\n";
         }
 
         // Light control
@@ -744,11 +759,11 @@ int main() {
     std::cout << "Arrows + PgUp/PgDn: Move light   B/H: Gizmo/Shadows   ESC: Exit\n";
 
     // LiDAR config
-    const int   beamsH   = 2048;
-    const int   beamsV   = 128;
+    const int   beamsH   = 360;
+    const int   beamsV   = 16;
     const float fovH_deg = 360.f;
     const float fovV_deg = 45.f;
-    const float lidarMax = 250.f;
+    const float lidarMax = 50.f;
 
     // Main loop
     float dtSmooth = 1.f/60.f;
@@ -868,12 +883,17 @@ int main() {
 
         // LiDAR (anchored to the DRONE pose)
         auto hits = simulateLidar3D(drone.p, worldAABBs, beamsH, beamsV, fovH_deg, fovV_deg, lidarMax);
+        
+        if(enableLidar)
         // drawLidar3DBeams(drone.p, hits);
         drawLidar3DPoints(hits, lidarMax); // optional
 
         // RADAR (anchored to drone)
         auto radarDets = simulateRadar3D(drone.p, droneVel, worldAABBs, radarCfg);
-        drawRadarBeams(drone.p, radarDets);
+        
+        if(enableRadar)
+        // drawRadarBeams(drone.p, radarDets);
+        drawRadarPoints(radarDets);
 
         window.display();
 
