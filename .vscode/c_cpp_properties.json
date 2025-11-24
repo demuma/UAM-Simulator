@@ -6,9 +6,10 @@
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/include/**",
                 "${workspaceFolder}/src/**",
-                "/opt/homebrew/opt/sfml/include",
+                "/opt/homebrew/opt/sfml/include**",
                 "/opt/homebrew/opt/yaml-cpp/include",
-                "/opt/homebrew/opt/glm/include"
+                "/opt/homebrew/opt/glm/include",
+                "/opt/homebrew/opt/glew/include"
             ],
             "defines": [],
             "macFrameworkPath": [

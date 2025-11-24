@@ -11,11 +11,13 @@ endif()
 
 # Set the SFML_DIR to the path containing SFMLConfig.cmake
 set(SFML_DIR "${HOMEBREW_PREFIX}/sfml@3/lib/cmake/SFML")
+set(GLEW_DIR "${HOMEBREW_PREFIX}/glew/lib/cmake/GL")
 
 find_package(SFML COMPONENTS Graphics Window System REQUIRED)
 # find_package(SFML 2.5 COMPONENTS graphics window system REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(glm REQUIRED)
+find_package(GLEW REQUIRED)
 find_package(OpenGL REQUIRED)
 
 include_directories(include)
@@ -51,6 +53,7 @@ target_link_libraries(UAM-Simulator
     SFML::System 
     yaml-cpp::yaml-cpp 
     glm::glm
+    GLEW::GLEW
     ${OPENGL_LIBRARIES}
 ) # for macOS SFML 3.0.0
 

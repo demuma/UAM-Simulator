@@ -1,4 +1,5 @@
-// UAM Simulator - Follow-cam fixed (no inversion), 3D LiDAR beams anchored to drone
+// UAM Simulato - Follow-cam fixed (no inversion), 3D LiDARE beams anchored to drone
+#include <GL/glew.h>
 #include <SFML/Graphics.hpp>
 #include <SFML/OpenGL.hpp>
 #include <glm/glm.hpp>
@@ -12,6 +13,9 @@
 #include <cmath>
 #include <memory>
 #include <algorithm>
+#include <fstream>
+#include <sstream>
+#include <string>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -30,6 +34,81 @@ static inline glm::vec3 forwardFrom(const Pose& p){
     return glm::normalize(glm::vec3(std::cos(y)*std::cos(pit),
                                     std::sin(pit),
                                     std::sin(y)*std::cos(pit)));
+}
+
+#include <fstream>
+#include <sstream>
+
+// Hilfsfunktion zum Laden einer Textdatei (für Shader)
+static std::string loadShaderSource(const std::string& filepath) {
+    std::ifstream file(filepath);
+    if (!file.is_open()) {
+        std::cerr << "ERROR: Could not open shader file: " << filepath << std::endl;
+        return "";
+    }
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    file.close();
+    return buffer.str();
+}
+
+// Hilfsfunktion zum Kompilieren und Linken der Shader
+static GLuint createShaderProgram(const std::string& vertPath, const std::string& fragPath) {
+    std::string vertSource = loadShaderSource(vertPath);
+    std::string fragSource = loadShaderSource(fragPath);
+
+    if (vertSource.empty() || fragSource.empty()) return 0;
+
+    const char* vertSourceC = vertSource.c_str();
+    const char* fragSourceC = fragSource.c_str();
+    
+    // Vertex Shader
+    GLuint vertShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertShader, 1, &vertSourceC, NULL);
+    glCompileShader(vertShader);
+    
+    // Check Vertex Shader
+    GLint success;
+    glGetShaderiv(vertShader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        char infoLog[512];
+        glGetShaderInfoLog(vertShader, 512, NULL, infoLog);
+        std::cerr << "ERROR: Vertex shader compilation failed\n" << infoLog << std::endl;
+    }
+
+    // Fragment Shader
+    GLuint fragShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragShader, 1, &fragSourceC, NULL);
+    glCompileShader(fragShader);
+
+    // Check Fragment Shader
+    glGetShaderiv(fragShader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        char infoLog[512];
+        glGetShaderInfoLog(fragShader, 512, NULL, infoLog);
+        std::cerr << "ERROR: Fragment shader compilation failed\n" << infoLog << std::endl;
+    }
+
+    // Shader Program
+    GLuint program = glCreateProgram();
+    glAttachShader(program, vertShader);
+    glAttachShader(program, fragShader);
+    glLinkProgram(program);
+
+    // Check Linking
+    glGetProgramiv(program, GL_LINK_STATUS, &success);
+    if (!success) {
+        char infoLog[512];
+        glGetProgramInfoLog(program, 512, NULL, infoLog);
+        std::cerr << "ERROR: Shader program linking failed\n" << infoLog << std::endl;
+    }
+
+    // Aufräumen
+    glDeleteShader(vertShader);
+    glDeleteShader(fragShader);
+
+    std::cout << "Shader program loaded successfully!" << std::endl;
+    return program;
 }
 
 // ===================== Drone =====================
@@ -594,8 +673,9 @@ int main() {
     settings.depthBits = 24;
     settings.stencilBits = 8;
     settings.antiAliasingLevel = 4;
-    settings.majorVersion = 2;
+    settings.majorVersion = 4;
     settings.minorVersion = 1;
+    settings.attributeFlags = sf::ContextSettings::Core;
 
     sf::RenderWindow window(sf::VideoMode({1200, 900}),
                             "UAM Simulator",
@@ -606,9 +686,56 @@ int main() {
     if (!window.setActive(true))
         std::cerr << "Warning: Could not activate OpenGL context!\n";
 
+    glewExperimental = GL_TRUE;
+    GLenum err = glewInit();
+   if (GLEW_OK != err) {
+        std::cerr << "Error: " << glewGetErrorString(err) << std::endl;
+        return -1;
+    }
+    std::cout << "Using GLEW Version: " << glewGetString(GLEW_VERSION) << std::endl;
+    // ===========================
+
     window.setVerticalSyncEnabled(true);
     std::cout << "OpenGL Version: " << glGetString(GL_VERSION) << "\n";
     std::cout << "Renderer: " << glGetString(GL_RENDERER) << "\n";
+
+    GLuint gridShaderProgram = createShaderProgram("grid.vert", "grid.frag");
+    if(gridShaderProgram == 0) {
+        std::cerr << "Failed to create grid shader program. Exiting.\n";
+        return -1;
+    }
+
+    // ----- Gitter VBO/VAO Setup -----
+    std::vector<float> gridVertices = generateGridVertices(10);
+    int gridVertexCount = gridVertices.size() / 6; // (pos(3) + color(3))
+
+    GLuint gridVAO, gridVBO;
+
+    // 1. VAO erstellen und binden
+    glGenVertexArrays(1, &gridVAO);
+    glBindVertexArray(gridVAO);
+
+    // 2. VBO erstellen, binden und mit Daten füllen
+    glGenBuffers(1, &gridVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, gridVBO);
+    glBufferData(GL_ARRAY_BUFFER, 
+                 gridVertices.size() * sizeof(float), 
+                 gridVertices.data(), 
+                 GL_STATIC_DRAW);
+
+    // 3. Vertex Attribute Pointer setzen (sagen OpenGL, wie die Daten im VBO zu lesen sind)
+    
+    // layout (location = 0) in vec3 aPos;
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // layout (location = 1) in vec3 aColor;
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    // 4. Bindung aufheben (gute Praxis)
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
 
     // GL state
     glEnable(GL_DEPTH_TEST);
@@ -644,7 +771,7 @@ int main() {
     }
 
     // Grid
-    std::vector<float> gridVertices = generateGridVertices(10);
+    // std::vector<float> gridVertices = generateGridVertices(10);
 
     // Light & shadow
     glm::vec3 lightPosition(5.0f, 8.0f, 3.0f);
@@ -855,15 +982,27 @@ int main() {
         glLoadMatrixf(glm::value_ptr(view));
 
         // Grid
-        glDisable(GL_LIGHTING);
-        glBegin(GL_LINES);
-        for (size_t i = 0; i + 11 < gridVertices.size(); i += 12) {
-            glColor3f(gridVertices[i+3],  gridVertices[i+4],  gridVertices[i+5]);
-            glVertex3f(gridVertices[i+0], gridVertices[i+1], gridVertices[i+2]);
-            glColor3f(gridVertices[i+9],  gridVertices[i+10], gridVertices[i+11]);
-            glVertex3f(gridVertices[i+6], gridVertices[i+7], gridVertices[i+8]);
-        }
-        glEnd();
+        // Stattdessen haben wir bereits die Matrizen von glm!
+        // float aspectRatio = static_cast<float>(window.getSize().x) / static_cast<float>(window.getSize().y);
+        // glm::mat4 projection = glm::perspective(glm::radians(45.0f), aspectRatio, 0.5f, 80.0f);
+        // glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
+
+
+        // === Gitter zeichnen (Modern) ===
+        glDisable(GL_LIGHTING); // <-- Diese alten Aufrufe sind jetzt wirkungslos, aber ok
+        
+        glUseProgram(gridShaderProgram); // 1. Shader aktivieren
+        
+        // 2. Uniforms setzen (Matrizen an den Shader senden)
+        glUniformMatrix4fv(glGetUniformLocation(gridShaderProgram, "uProjection"), 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(glGetUniformLocation(gridShaderProgram, "uView"), 1, GL_FALSE, glm::value_ptr(view));
+
+        // 3. VAO binden und zeichnen
+        glBindVertexArray(gridVAO);
+        glDrawArrays(GL_LINES, 0, gridVertexCount); // Zeichne die Linien!
+        glBindVertexArray(0); // 4. VAO lösen
+        
+        glUseProgram(0); // 5. Shader deaktivieren
 
         // Shadows
         if (enableShadows) {
@@ -906,6 +1045,11 @@ int main() {
             fpsCounter.restart();
         }
     }
+
+    // Am Ende von main(), vor return 0:
+    glDeleteVertexArrays(1, &gridVAO);
+    glDeleteBuffers(1, &gridVBO);
+    glDeleteProgram(gridShaderProgram);
 
     std::cout << "Exiting successfully!\n";
     return 0;
