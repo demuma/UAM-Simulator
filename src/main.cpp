@@ -140,47 +140,27 @@ static inline void updateDrone(Drone& d, float dt) {
     if (glm::length(move) > 0.f) d.p.pos += glm::normalize(move) * (d.speed * dt);
 }
 
-static inline void drawDroneBox(const Pose& p, const glm::vec3& scale){
-    glPushMatrix();
-    glTranslatef(p.pos.x, p.pos.y, p.pos.z);
-    glRotatef(-p.yaw, 0.f, 1.f, 0.f);
-    glRotatef(p.pitch, 1.f, 0.f, 0.f);
-    glScalef(scale.x, scale.y, scale.z);
+static inline void drawDroneBox(const Pose& p, const glm::vec3& scale, GLuint shaderProgram, GLuint vao) {
+    // 1. Berechne die Model-Matrix für die Drohne
+    glm::mat4 model = glm::mat4(1.0f);
+    model = glm::translate(model, p.pos);
+    model = glm::rotate(model, glm::radians(-p.yaw),   glm::vec3(0,1,0));
+    model = glm::rotate(model, glm::radians(p.pitch), glm::vec3(1,0,0)); // Achtung: original war (1,0,0)
+    model = glm::scale(model, scale);
 
-    glDisable(GL_LIGHTING);
-    glColor3f(0.15f, 0.15f, 0.15f);
-    glBegin(GL_QUADS);
-      // top
-      glVertex3f(-0.5f, 0.5f, -0.5f); glVertex3f(0.5f, 0.5f, -0.5f);
-      glVertex3f(0.5f, 0.5f,  0.5f);  glVertex3f(-0.5f, 0.5f,  0.5f);
-      // bottom
-      glVertex3f(-0.5f,-0.5f, -0.5f); glVertex3f(0.5f,-0.5f, -0.5f);
-      glVertex3f(0.5f,-0.5f,  0.5f);  glVertex3f(-0.5f,-0.5f,  0.5f);
-      // sides
-      glVertex3f(-0.5f,-0.5f,-0.5f); glVertex3f(-0.5f, 0.5f,-0.5f);
-      glVertex3f( 0.5f, 0.5f,-0.5f); glVertex3f( 0.5f,-0.5f,-0.5f);
+    // 2. Setze die Uniforms
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
+    glUniform3f(glGetUniformLocation(shaderProgram, "uObjectColor"), 0.15f, 0.15f, 0.15f); // Feste Farbe
 
-      glVertex3f(-0.5f,-0.5f, 0.5f); glVertex3f(-0.5f, 0.5f, 0.5f);
-      glVertex3f( 0.5f, 0.5f, 0.5f); glVertex3f( 0.5f,-0.5f, 0.5f);
-
-      glVertex3f(-0.5f,-0.5f,-0.5f); glVertex3f(-0.5f,-0.5f, 0.5f);
-      glVertex3f(-0.5f, 0.5f, 0.5f);  glVertex3f(-0.5f, 0.5f,-0.5f);
-
-      glVertex3f(0.5f,-0.5f,-0.5f);  glVertex3f(0.5f,-0.5f, 0.5f);
-      glVertex3f(0.5f, 0.5f, 0.5f);   glVertex3f(0.5f, 0.5f,-0.5f);
-    glEnd();
-
-    // simple arms
-    glLineWidth(2.f);
-    glBegin(GL_LINES);
-    glColor3f(1.0f,0.0f,0.0f);
-    glVertex3f(-0.7f, 0.f, 0.f); glVertex3f(0.7f, 0.f, 0.f);
-    glColor3f(0.4f,0.4f,0.4f);
-      glVertex3f(0.f, 0.f,-0.7f);   glVertex3f(0.f, 0.f, 0.7f);
-    glEnd();
-    glLineWidth(1.f);
-
-    glPopMatrix();
+    // 3. Zeichne den Würfel
+    glBindVertexArray(vao);
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+    glBindVertexArray(0);
+    
+    // HINWEIS: Die "Arme" (GL_LINES) sind hier nicht enthalten.
+    // Um sie hinzuzufügen, müsstest du eine separate VAO/VBO für
+    // Linien erstellen oder einen anderen Shader verwenden.
+    // Lass sie für den Moment einfach weg.
 }
 
 // ===================== Grid =====================
@@ -340,14 +320,21 @@ public:
                           config["color"][2].as<float>());
     }
 
-    void draw(const glm::vec3& lightPos) {
-        glPushMatrix();
-        glTranslatef(position.x, position.y, position.z);
-        glScalef(dimensions.x, dimensions.y, dimensions.z);
+    void draw(GLuint shaderProgram, GLuint vao) {
+        // 1. Berechne die Model-Matrix für dieses Objekt
+        glm::mat4 model = glm::mat4(1.0f);
+        model = glm::translate(model, position);
+        // (Hier könntest du später auch Rotation einfügen)
+        model = glm::scale(model, dimensions);
 
-        drawLitCube(lightPos);
-        drawCubeEdges();
-        glPopMatrix();
+        // 2. Setze die Uniforms, die für dieses Objekt spezifisch sind
+        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
+        glUniform3fv(glGetUniformLocation(shaderProgram, "uObjectColor"), 1, glm::value_ptr(color));
+        
+        // 3. Zeichne den Würfel
+        glBindVertexArray(vao);
+        glDrawArrays(GL_TRIANGLES, 0, 36); // 36 Vertices
+        glBindVertexArray(0);
     }
 
     void drawShadow(const glm::vec3& lightPos) {
@@ -424,55 +411,7 @@ public:
     }
 
 private:
-    void drawLitCube(const glm::vec3& lightPos) {
-        glDisable(GL_LIGHTING);
 
-        struct Face { glm::vec3 normal; glm::vec3 v[4]; };
-        Face faces[6] = {
-            { {0,0, 1}, {{-0.5f,-0.5f, 0.5f},{ 0.5f,-0.5f, 0.5f},{ 0.5f, 0.5f, 0.5f},{-0.5f, 0.5f, 0.5f}} },
-            { {0,0,-1}, {{ 0.5f,-0.5f,-0.5f},{-0.5f,-0.5f,-0.5f},{-0.5f, 0.5f,-0.5f},{ 0.5f, 0.5f,-0.5f}} },
-            { {0,1, 0}, {{-0.5f, 0.5f,-0.5f},{-0.5f, 0.5f, 0.5f},{ 0.5f, 0.5f, 0.5f},{ 0.5f, 0.5f,-0.5f}} },
-            { {0,-1,0}, {{-0.5f,-0.5f,-0.5f},{ 0.5f,-0.5f,-0.5f},{ 0.5f,-0.5f, 0.5f},{-0.5f,-0.5f, 0.5f}} },
-            { {1,0, 0}, {{ 0.5f,-0.5f,-0.5f},{ 0.5f, 0.5f,-0.5f},{ 0.5f, 0.5f, 0.5f},{ 0.5f,-0.5f, 0.5f}} },
-            { {-1,0,0}, {{-0.5f,-0.5f, 0.5f},{-0.5f, 0.5f, 0.5f},{-0.5f, 0.5f,-0.5f},{-0.5f,-0.5f,-0.5f}} }
-        };
-
-        glBegin(GL_QUADS);
-        for (int i = 0; i < 6; i++) {
-            glm::vec3 lightDir = glm::normalize(lightPos - position);
-            float diffuse = std::max(0.0f, glm::dot(faces[i].normal, lightDir));
-            float ambient = 0.3f;
-            float li = std::min(1.0f, ambient + diffuse * 0.7f);
-            glColor3f(color.x * li, color.y * li, color.z * li);
-            for (int j = 0; j < 4; j++)
-                glVertex3f(faces[i].v[j].x, faces[i].v[j].y, faces[i].v[j].z);
-        }
-        glEnd();
-    }
-
-    void drawCubeEdges() {
-        glDisable(GL_LIGHTING);
-        glColor4f(0.0f, 0.0f, 0.0f, 0.8f);
-        glLineWidth(1.5f);
-        glBegin(GL_LINES);
-        // Front
-        glVertex3f(-0.5f,-0.5f, 0.5f); glVertex3f( 0.5f,-0.5f, 0.5f);
-        glVertex3f( 0.5f,-0.5f, 0.5f); glVertex3f( 0.5f, 0.5f, 0.5f);
-        glVertex3f( 0.5f, 0.5f, 0.5f); glVertex3f(-0.5f, 0.5f, 0.5f);
-        glVertex3f(-0.5f, 0.5f, 0.5f); glVertex3f(-0.5f,-0.5f, 0.5f);
-        // Back
-        glVertex3f(-0.5f,-0.5f,-0.5f); glVertex3f( 0.5f,-0.5f,-0.5f);
-        glVertex3f( 0.5f,-0.5f,-0.5f); glVertex3f( 0.5f, 0.5f,-0.5f);
-        glVertex3f( 0.5f, 0.5f,-0.5f); glVertex3f(-0.5f, 0.5f,-0.5f);
-        glVertex3f(-0.5f, 0.5f,-0.5f); glVertex3f(-0.5f,-0.5f,-0.5f);
-        // Sides
-        glVertex3f(-0.5f,-0.5f,-0.5f); glVertex3f(-0.5f,-0.5f, 0.5f);
-        glVertex3f( 0.5f,-0.5f,-0.5f); glVertex3f( 0.5f,-0.5f, 0.5f);
-        glVertex3f( 0.5f, 0.5f,-0.5f); glVertex3f( 0.5f, 0.5f, 0.5f);
-        glVertex3f(-0.5f, 0.5f,-0.5f); glVertex3f(-0.5f, 0.5f, 0.5f);
-        glEnd();
-        glLineWidth(1.0f);
-    }
 };
 
 // ===================== Ray / LiDAR =====================
@@ -737,11 +676,90 @@ int main() {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
+    GLuint objectShaderProgram = createShaderProgram("object.vert", "object.frag");
+if (objectShaderProgram == 0) return -1;
+
+// ----- Einheits-Würfel VBO/VAO Setup -----
+// 36 Vertices (6 pro Seite * 6 Seiten)
+// Jede Zeile: 3x Position, 3x Normale
+float cubeVertices[] = {
+    // Rückseite (-Z)
+    -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+     0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+     0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+     0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+    -0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+    -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+
+    // Vorderseite (+Z)
+    -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+     0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+     0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+     0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+    -0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+    -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+
+    // Links (-X)
+    -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
+    -0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+    -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+    -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+    -0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
+    -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
+
+    // Rechts (+X)
+     0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
+     0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+     0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+     0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+     0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
+     0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
+
+    // Unten (-Y)
+    -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
+     0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
+     0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+     0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+    -0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+    -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
+
+    // Oben (+Y)
+    -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,
+     0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,
+     0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+     0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+    -0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+    -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f
+};
+
+GLuint cubeVAO, cubeVBO;
+glGenVertexArrays(1, &cubeVAO);
+glBindVertexArray(cubeVAO);
+
+glGenBuffers(1, &cubeVBO);
+glBindBuffer(GL_ARRAY_BUFFER, cubeVBO);
+glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
+
+// Stride (Schrittweite) ist jetzt 6 floats
+GLsizei stride = 6 * sizeof(float);
+
+// layout (location = 0) in vec3 aPos;
+glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
+glEnableVertexAttribArray(0);
+
+// layout (location = 1) in vec3 aNormal;
+glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
+glEnableVertexAttribArray(1);
+
+glBindVertexArray(0); // VAO freigeben 
+
     // GL state
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+
 
     // Load objects
     std::vector<std::unique_ptr<Object3D>> objects;
@@ -1000,7 +1018,7 @@ int main() {
         // 3. VAO binden und zeichnen
         glBindVertexArray(gridVAO);
         glDrawArrays(GL_LINES, 0, gridVertexCount); // Zeichne die Linien!
-        glBindVertexArray(0); // 4. VAO lösen
+        // glBindVertexArray(0); // 4. VAO lösen
         
         glUseProgram(0); // 5. Shader deaktivieren
 
@@ -1011,14 +1029,23 @@ int main() {
             drawDroneProjectedShadow(drone, lightPosition);
         }
 
+        glUseProgram(objectShaderProgram); // 1. Objekt-Shader aktivieren
+        
+        // Setze die Uniforms, die für ALLE Objekte gleich sind
+        glUniformMatrix4fv(glGetUniformLocation(objectShaderProgram, "uProjection"), 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(glGetUniformLocation(objectShaderProgram, "uView"), 1, GL_FALSE, glm::value_ptr(view));
+        glUniform3fv(glGetUniformLocation(objectShaderProgram, "uLightPos"), 1, glm::value_ptr(lightPosition));
+
         // Buildings
-        for (const auto& object : objects) object->draw(lightPosition);
+        for (const auto& object : objects) {
+            object->draw(objectShaderProgram, cubeVAO);
+        }
 
         // Drone
-        drawDroneBox(drone.p, drone.bodyScale);
+        drawDroneBox(drone.p, drone.bodyScale, objectShaderProgram, cubeVAO);
 
         // Light
-        if (showLightSource) drawLightSource(lightPosition);
+        // if (showLightSource) drawLightSource(lightPosition);
 
         // LiDAR (anchored to the DRONE pose)
         auto hits = simulateLidar3D(drone.p, worldAABBs, beamsH, beamsV, fovH_deg, fovV_deg, lidarMax);
@@ -1050,6 +1077,10 @@ int main() {
     glDeleteVertexArrays(1, &gridVAO);
     glDeleteBuffers(1, &gridVBO);
     glDeleteProgram(gridShaderProgram);
+
+    glDeleteVertexArrays(1, &cubeVAO);
+    glDeleteBuffers(1, &cubeVBO);
+    glDeleteProgram(objectShaderProgram);
 
     std::cout << "Exiting successfully!\n";
     return 0;
