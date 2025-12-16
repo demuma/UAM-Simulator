@@ -1,22 +1,27 @@
 #version 410 core
 
 // 0 = Position (vec3)
-// 1 = Farbe (vec3)
 layout (location = 0) in vec3 aPos;
-layout (location = 1) in vec3 aColor;
+// 1 = Normale (vec3) - NEU
+layout (location = 1) in vec3 aNormal; 
 
-// Output zur Fragment Shader
-out vec3 vColor;
+// Output an Fragment Shader
+out vec3 vNormal;         
+out vec4 vLightSpacePos; // Position des Vertex im Licht-Space
 
-// Matrizen, die wir von C++ (glm) bekommen
+// Matrizen
 uniform mat4 uProjection;
 uniform mat4 uView;
-// (Wir brauchen keine Model-Matrix für das Gitter, da es bei (0,0,0) ist)
+uniform mat4 uLightSpaceMatrix; // Neu
 
 void main()
 {
-    // Berechne die finale Position auf dem Bildschirm
     gl_Position = uProjection * uView * vec4(aPos, 1.0);
-    // Gib die Farbe einfach weiter
-    vColor = aColor;
+    
+    // Normale im Weltraum weitergeben
+    vNormal = aNormal;
+    
+    // Position des Vertex im Light-Space
+    // Da das Gitter keine Model-Matrix hat (Identity), verwenden wir nur aPos.
+    vLightSpacePos = uLightSpaceMatrix * vec4(aPos, 1.0);
 }

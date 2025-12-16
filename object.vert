@@ -12,6 +12,12 @@ uniform mat4 uModel;
 uniform mat4 uView;
 uniform mat4 uProjection;
 
+// NEUE UNIFORM
+uniform mat4 uLightSpaceMatrix;
+
+// NEUER OUTPUT
+out vec4 vLightSpacePos; // Position des Vertex im Licht-Space
+
 void main()
 {
     // Berechne die finale Bildschirm-Position
@@ -23,4 +29,7 @@ void main()
     
     // Normalen korrekt transformieren (besonders bei Skalierung)
     vNormal = mat3(transpose(inverse(uModel))) * aNormal;
+
+    // Position des Vertex im Light-Space
+    vLightSpacePos = uLightSpaceMatrix * uModel * vec4(aPos, 1.0);
 }

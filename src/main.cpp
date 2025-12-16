@@ -1,130 +1,118 @@
-// UAM Simulato - Follow-cam fixed (no inversion), 3D LiDARE beams anchored to drone
+// UAM Simulator — modularized main with comments and clearer structure
+
 #include <GL/glew.h>
 #include <SFML/Graphics.hpp>
 #include <SFML/OpenGL.hpp>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
-#include <iostream>
-#include <vector>
-#include <optional>
-#include <variant>
 #include <yaml-cpp/yaml.h>
-#include <cmath>
-#include <memory>
+
 #include <algorithm>
+#include <cmath>
 #include <fstream>
+#include <iostream>
+#include <memory>
+#include <optional>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-// ===================== Utilities / Math =====================
+// ===================== Math / Pose =====================
 struct Pose {
     glm::vec3 pos{0.f, 1.0f, 0.f};
     float yaw = 0.f;   // degrees (CCW around +Y when seen from above)
     float pitch = 0.f; // degrees
 };
 
-// Forward from yaw/pitch: yaw=0 -> +X, yaw=90 -> +Z. CCW is left turn.
-static inline glm::vec3 forwardFrom(const Pose& p){
+// Forward from yaw/pitch: yaw=0 -> +X, yaw=90 -> +Z
+static inline glm::vec3 forwardFrom(const Pose& p) {
     float y = glm::radians(p.yaw), pit = glm::radians(p.pitch);
-    return glm::normalize(glm::vec3(std::cos(y)*std::cos(pit),
+    return glm::normalize(glm::vec3(std::cos(y) * std::cos(pit),
                                     std::sin(pit),
-                                    std::sin(y)*std::cos(pit)));
+                                    std::sin(y) * std::cos(pit)));
 }
 
-#include <fstream>
-#include <sstream>
+// ===================== Shader utils =====================
+namespace glutil {
 
-// Hilfsfunktion zum Laden einer Textdatei (für Shader)
-static std::string loadShaderSource(const std::string& filepath) {
+// Load text file into string (used for shader source)
+static std::string loadText(const std::string& filepath) {
     std::ifstream file(filepath);
     if (!file.is_open()) {
-        std::cerr << "ERROR: Could not open shader file: " << filepath << std::endl;
+        std::cerr << "ERROR: Could not open file: " << filepath << std::endl;
         return "";
     }
     std::stringstream buffer;
     buffer << file.rdbuf();
-    file.close();
     return buffer.str();
 }
 
-// Hilfsfunktion zum Kompilieren und Linken der Shader
+// Compile + link shader program from vertex/fragment paths
 static GLuint createShaderProgram(const std::string& vertPath, const std::string& fragPath) {
-    std::string vertSource = loadShaderSource(vertPath);
-    std::string fragSource = loadShaderSource(fragPath);
-
+    std::string vertSource = loadText(vertPath);
+    std::string fragSource = loadText(fragPath);
     if (vertSource.empty() || fragSource.empty()) return 0;
 
-    const char* vertSourceC = vertSource.c_str();
-    const char* fragSourceC = fragSource.c_str();
-    
-    // Vertex Shader
-    GLuint vertShader = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vertShader, 1, &vertSourceC, NULL);
-    glCompileShader(vertShader);
-    
-    // Check Vertex Shader
-    GLint success;
-    glGetShaderiv(vertShader, GL_COMPILE_STATUS, &success);
-    if (!success) {
-        char infoLog[512];
-        glGetShaderInfoLog(vertShader, 512, NULL, infoLog);
-        std::cerr << "ERROR: Vertex shader compilation failed\n" << infoLog << std::endl;
+    const char* vsrc = vertSource.c_str();
+    const char* fsrc = fragSource.c_str();
+
+    GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vs, 1, &vsrc, nullptr);
+    glCompileShader(vs);
+    GLint ok = GL_FALSE;
+    glGetShaderiv(vs, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[1024]; glGetShaderInfoLog(vs, 1024, nullptr, log);
+        std::cerr << "Vertex shader compile error:\n" << log << std::endl;
     }
 
-    // Fragment Shader
-    GLuint fragShader = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fragShader, 1, &fragSourceC, NULL);
-    glCompileShader(fragShader);
-
-    // Check Fragment Shader
-    glGetShaderiv(fragShader, GL_COMPILE_STATUS, &success);
-    if (!success) {
-        char infoLog[512];
-        glGetShaderInfoLog(fragShader, 512, NULL, infoLog);
-        std::cerr << "ERROR: Fragment shader compilation failed\n" << infoLog << std::endl;
+    GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fs, 1, &fsrc, nullptr);
+    glCompileShader(fs);
+    glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[1024]; glGetShaderInfoLog(fs, 1024, nullptr, log);
+        std::cerr << "Fragment shader compile error:\n" << log << std::endl;
     }
 
-    // Shader Program
-    GLuint program = glCreateProgram();
-    glAttachShader(program, vertShader);
-    glAttachShader(program, fragShader);
-    glLinkProgram(program);
-
-    // Check Linking
-    glGetProgramiv(program, GL_LINK_STATUS, &success);
-    if (!success) {
-        char infoLog[512];
-        glGetProgramInfoLog(program, 512, NULL, infoLog);
-        std::cerr << "ERROR: Shader program linking failed\n" << infoLog << std::endl;
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, vs);
+    glAttachShader(prog, fs);
+    glLinkProgram(prog);
+    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[1024]; glGetProgramInfoLog(prog, 1024, nullptr, log);
+        std::cerr << "Program link error:\n" << log << std::endl;
     }
 
-    // Aufräumen
-    glDeleteShader(vertShader);
-    glDeleteShader(fragShader);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
 
-    std::cout << "Shader program loaded successfully!" << std::endl;
-    return program;
+    if (ok) std::cout << "Shader program loaded: " << vertPath << " | " << fragPath << std::endl;
+    return prog;
 }
+
+} // namespace glutil
 
 // ===================== Drone =====================
 struct Drone {
     Pose p;
-    float speed    = 6.f;    // m/s
-    float yawRate  = 90.f;   // deg/s
-    float climb    = 3.f;    // m/s
-    glm::vec3 bodyScale{0.5f, 0.15f, 0.5f}; // for body & shadow
+    float speed = 6.f;    // m/s
+    float yawRate = 90.f; // deg/s
+    float climb = 3.f;    // m/s
+    glm::vec3 bodyScale{0.5f, 0.15f, 0.5f};
 };
 
-// Revert updateDrone back to its original state:
+// Read keyboard and update drone physics
 static inline void updateDrone(Drone& d, float dt) {
     glm::vec3 fwd = forwardFrom(d.p);
-    glm::vec3 right = glm::normalize(glm::cross(fwd, {0,1,0}));
-    
+    glm::vec3 right = glm::normalize(glm::cross(fwd, {0, 1, 0}));
+
     glm::vec3 move(0);
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W)) move += fwd;
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S)) move -= fwd;
@@ -133,181 +121,103 @@ static inline void updateDrone(Drone& d, float dt) {
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::C)) d.p.pos.y += d.climb * dt;
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::V)) d.p.pos.y -= d.climb * dt;
 
-    // Q/E control the drone's rotation directly (Q=LEFT/CCW, E=RIGHT/CW)
-    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Q)) d.p.yaw -= d.yawRate * dt; 
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Q)) d.p.yaw -= d.yawRate * dt;
     if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::E)) d.p.yaw += d.yawRate * dt;
 
     if (glm::length(move) > 0.f) d.p.pos += glm::normalize(move) * (d.speed * dt);
 }
 
+// Draw drone as a scaled cube using object shader
 static inline void drawDroneBox(const Pose& p, const glm::vec3& scale, GLuint shaderProgram, GLuint vao) {
-    // 1. Berechne die Model-Matrix für die Drohne
-    glm::mat4 model = glm::mat4(1.0f);
+    glm::mat4 model(1.f);
     model = glm::translate(model, p.pos);
-    model = glm::rotate(model, glm::radians(-p.yaw),   glm::vec3(0,1,0));
-    model = glm::rotate(model, glm::radians(p.pitch), glm::vec3(1,0,0)); // Achtung: original war (1,0,0)
+    model = glm::rotate(model, glm::radians(-p.yaw), glm::vec3(0, 1, 0));
+    model = glm::rotate(model, glm::radians(p.pitch), glm::vec3(1, 0, 0));
     model = glm::scale(model, scale);
 
-    // 2. Setze die Uniforms
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
-    glUniform3f(glGetUniformLocation(shaderProgram, "uObjectColor"), 0.15f, 0.15f, 0.15f); // Feste Farbe
+    glUniform3f(glGetUniformLocation(shaderProgram, "uObjectColor"), 0.15f, 0.15f, 0.15f);
 
-    // 3. Zeichne den Würfel
     glBindVertexArray(vao);
     glDrawArrays(GL_TRIANGLES, 0, 36);
     glBindVertexArray(0);
+}
+
+void drawDroneProjectedShadow(const Drone& drone, const glm::vec3& lightPos, GLuint shadowShader, GLuint cubeVAO, float groundY = 0.0f) {
+    glUseProgram(shadowShader);
     
-    // HINWEIS: Die "Arme" (GL_LINES) sind hier nicht enthalten.
-    // Um sie hinzuzufügen, müsstest du eine separate VAO/VBO für
-    // Linien erstellen oder einen anderen Shader verwenden.
-    // Lass sie für den Moment einfach weg.
-}
+    // Lichtposition (L)
+    float Lx = lightPos.x;
+    float Ly = lightPos.y;
+    float Lz = lightPos.z;
 
-// ===================== Grid =====================
-static std::vector<float> generateGridVertices(int halfSize = 10) {
-    std::vector<float> vertices;
-    float lineColor[3] = {0.7f, 0.7f, 0.7f};
-    float centerColor[3] = {0.3f, 0.3f, 0.3f};
+    // Ebene (Y=groundY)
+    float A = 0.0f;
+    float B = 1.0f;
+    float C = 0.0f;
+    float D = -groundY - 0.001f; // Bias
 
-    for (int x = -halfSize; x <= halfSize; x++) {
-        bool isCenter = (x == 0);
-        float r = isCenter ? centerColor[0] : lineColor[0];
-        float g = isCenter ? centerColor[1] : lineColor[1];
-        float b = isCenter ? centerColor[2] : lineColor[2];
+    // Dot product: L.P (Homogener Punkt L mit Ebene P) = Lx*A + Ly*B + Lz*C + 1*D
+    float dot = Lx * A + Ly * B + Lz * C + 1.0f * D;
 
-        vertices.insert(vertices.end(), {
-            static_cast<float>(x), 0.0f, static_cast<float>(-halfSize), r, g, b,
-            static_cast<float>(x), 0.0f, static_cast<float>(halfSize),  r, g, b
-        });
-    }
-
-    for (int z = -halfSize; z <= halfSize; z++) {
-        bool isCenter = (z == 0);
-        float r = isCenter ? centerColor[0] : lineColor[0];
-        float g = isCenter ? centerColor[1] : lineColor[1];
-        float b = isCenter ? centerColor[2] : lineColor[2];
-
-        vertices.insert(vertices.end(), {
-            static_cast<float>(-halfSize), 0.0f, static_cast<float>(z), r, g, b,
-            static_cast<float>(halfSize),  0.0f, static_cast<float>(z), r, g, b
-        });
-    }
-    return vertices;
-}
-
-// ===================== Light gizmo =====================
-static void drawLightSource(const glm::vec3& lightPos) {
-    glDisable(GL_LIGHTING);
-    glPushMatrix();
-    glTranslatef(lightPos.x, lightPos.y, lightPos.z);
-
-    glColor3f(1.0f, 1.0f, 0.0f);
-    const int segments = 8;
-    const float radius = 0.3f;
-
-    for (int i = 0; i < segments; i++) {
-        float theta1 = (float)i * 2.0f * M_PI / segments;
-        float theta2 = (float)(i + 1) * 2.0f * M_PI / segments;
-
-        glBegin(GL_TRIANGLE_STRIP);
-        for (int j = 0; j <= segments/2; j++) {
-            float phi = (float)j * M_PI / (segments/2);
-
-            float x1 = radius * std::sin(phi) * std::cos(theta1);
-            float y1 = radius * std::cos(phi);
-            float z1 = radius * std::sin(phi) * std::sin(theta1);
-
-            float x2 = radius * std::sin(phi) * std::cos(theta2);
-            float y2 = radius * std::cos(phi);
-            float z2 = radius * std::sin(phi) * std::sin(theta2);
-
-            glVertex3f(x1, y1, z1);
-            glVertex3f(x2, y2, z2);
-        }
-        glEnd();
-    }
-    glPopMatrix();
-}
-
-// ===================== Drone projected shadow (rot-aware) =====================
-static inline bool projectPointToGround(const glm::vec3& L, const glm::vec3& P, float yPlane, glm::vec3& out) {
-    glm::vec3 dir = P - L;
-    if (std::abs(dir.y) < 1e-6f) return false;
-    float t = (yPlane - L.y) / dir.y;
-    if (t <= 0.f) return false;
-    out = L + t * dir;
-    return true;
-}
-
-static std::vector<glm::vec3> convexHullXZ(std::vector<glm::vec3> pts) {
-    if (pts.size() <= 3) return pts;
-    std::sort(pts.begin(), pts.end(), [](const glm::vec3& a, const glm::vec3& b){
-        if (a.x != b.x) return a.x < b.x;
-        return a.z < b.z;
-    });
-    auto cross2D = [](const glm::vec3& O, const glm::vec3& A, const glm::vec3& B){
-        return (A.x - O.x)*(B.z - O.z) - (A.z - O.z)*(B.x - O.x);
-    };
-    std::vector<glm::vec3> H; H.reserve(pts.size()*2);
-    for (const auto& p : pts){
-        while (H.size() >= 2 && cross2D(H[H.size()-2], H.back(), p) <= 0.f) H.pop_back();
-        H.push_back(p);
-    }
-    size_t t = H.size()+1;
-    for (int i=(int)pts.size()-2; i>=0; --i){
-        const auto& p = pts[i];
-        while (H.size() >= t && cross2D(H[H.size()-2], H.back(), p) <= 0.f) H.pop_back();
-        H.push_back(p);
-    }
-    H.pop_back();
-    return H;
-}
-
-static void drawDroneProjectedShadow(const Drone& d, const glm::vec3& lightPos) {
+    // Planar Projection Matrix M
     glm::mat4 M(1.0f);
-    M = glm::translate(M, d.p.pos);
-    M = glm::rotate(M, glm::radians(-d.p.yaw),   glm::vec3(0,1,0));
-    M = glm::rotate(M, glm::radians(d.p.pitch), glm::vec3(1,0,0));
-    M = glm::scale(M, d.bodyScale);
+    
+    // M_ij = (Dot) * delta_ij - L_i * P_j
 
-    glm::vec3 corners[8] = {
-        {-0.5f,-0.5f,-0.5f}, {0.5f,-0.5f,-0.5f}, {0.5f, 0.5f,-0.5f}, {-0.5f, 0.5f,-0.5f},
-        {-0.5f,-0.5f, 0.5f}, {0.5f,-0.5f, 0.5f}, {0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f}
-    };
+    // Spalte 0 (x)
+    M[0][0] = dot - Lx * A;
+    M[1][0] = 0.0f - Lx * B;
+    M[2][0] = 0.0f - Lx * C;
+    M[3][0] = 0.0f - Lx * D;
 
-    std::vector<glm::vec3> proj; proj.reserve(8);
-    float groundY = 0.01f;
-    for (auto& c : corners) {
-        glm::vec4 w = M * glm::vec4(c, 1.0f);
-        glm::vec3 worldPt(w.x, w.y, w.z), p;
-        if (projectPointToGround(lightPos, worldPt, groundY, p)) proj.push_back(p);
-    }
-    if (proj.size() < 3) return;
+    // Spalte 1 (y)
+    M[0][1] = 0.0f - Ly * A;
+    M[1][1] = dot - Ly * B;
+    M[2][1] = 0.0f - Ly * C;
+    M[3][1] = 0.0f - Ly * D;
 
-    auto hull = convexHullXZ(proj);
-    if (hull.size() < 3) return;
+    // Spalte 2 (z)
+    M[0][2] = 0.0f - Lz * A;
+    M[1][2] = 0.0f - Lz * B;
+    M[2][2] = dot - Lz * C;
+    M[3][2] = 0.0f - Lz * D;
 
-    glDisable(GL_LIGHTING);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glDepthMask(GL_FALSE);
-    glColor4f(0.f, 0.f, 0.f, 0.35f);
-    glBegin(GL_TRIANGLE_FAN);
-        for (auto& p : hull) glVertex3f(p.x, groundY, p.z);
-    glEnd();
-    glDepthMask(GL_TRUE);
-    glDisable(GL_BLEND);
+    // Spalte 3 (w)
+    M[0][3] = 0.0f - 1.0f * A;
+    M[1][3] = 0.0f - 1.0f * B;
+    M[2][3] = 0.0f - 1.0f * C;
+    M[3][3] = dot - 1.0f * D; 
+
+    // Drohnen-Modell-Matrix
+    glm::mat4 model = glm::mat4(1.0f);
+    model = glm::translate(model, drone.p.pos);
+    glm::vec3 shadowScale(drone.bodyScale.x * 2.0f, drone.bodyScale.y, drone.bodyScale.z * 2.0f);
+    model = glm::scale(model, shadowScale);
+    
+    // Schattenmodell-Matrix = Projektionsmatrix * Drohnen-Modell-Matrix
+    glm::mat4 shadowModel = M * model;
+
+    GLint modelLoc = glGetUniformLocation(shadowShader, "model");
+    glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(shadowModel));
+
+    glBindVertexArray(cubeVAO);
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+    glBindVertexArray(0);
+    glUseProgram(0);
 }
 
-// ===================== Buildings =====================
+// ===================== Scene Objects (Buildings) =====================
 class Object3D {
 public:
     std::string name;
     glm::vec3 position;
     glm::vec3 dimensions;
     glm::vec3 color;
+    glm::vec3 scale{1.0f, 1.0f, 1.0f};
 
-    Object3D(const YAML::Node& config) {
+    // Construct from YAML node
+    explicit Object3D(const YAML::Node& config) {
         name = config["name"].as<std::string>();
         position = glm::vec3(config["position"][0].as<float>(),
                              config["position"][1].as<float>(),
@@ -320,106 +230,276 @@ public:
                           config["color"][2].as<float>());
     }
 
-    void draw(GLuint shaderProgram, GLuint vao) {
-        // 1. Berechne die Model-Matrix für dieses Objekt
+    glm::mat4 getModelMatrix() const {
         glm::mat4 model = glm::mat4(1.0f);
         model = glm::translate(model, position);
-        // (Hier könntest du später auch Rotation einfügen)
+        model = glm::scale(model, scale);
+        return model;
+    }
+
+    // Draw a cube for this object using provided shader/VAO
+    void draw(GLuint shaderProgram, GLuint vao) const {
+        glm::mat4 model(1.f);
+        model = glm::translate(model, position);
         model = glm::scale(model, dimensions);
 
-        // 2. Setze die Uniforms, die für dieses Objekt spezifisch sind
         glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
-        glUniform3fv(glGetUniformLocation(shaderProgram, "uObjectColor"), 1, glm::value_ptr(color));
-        
-        // 3. Zeichne den Würfel
+        if (glGetUniformLocation(shaderProgram, "uObjectColor") != -1) {
+            glUniform3fv(glGetUniformLocation(shaderProgram, "uObjectColor"), 1, glm::value_ptr(color));
+        }
+
         glBindVertexArray(vao);
-        glDrawArrays(GL_TRIANGLES, 0, 36); // 36 Vertices
+        glDrawArrays(GL_TRIANGLES, 0, 36);
         glBindVertexArray(0);
     }
 
-    void drawShadow(const glm::vec3& lightPos) {
-        // simple, cheap shadow quad under building center
-        glm::vec3 objectScale = dimensions;
-        glDisable(GL_LIGHTING);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glDepthMask(GL_FALSE);
-        glColor4f(0.0f, 0.0f, 0.0f, 0.18f);
-        glm::vec3 center = position, p;
-        if (projectPointToGround(lightPos, center, 0.01f, p)) {
-            glPushMatrix();
-            float lightHeight = std::max(0.1f, lightPos.y - 0.01f);
-            float shadowScale = 1.0f + (center.y / lightHeight) * 0.5f;
-            glTranslatef(p.x, 0.01f, p.z);
-            glScalef(objectScale.x * shadowScale, 0.01f, objectScale.z * shadowScale);
-            glBegin(GL_QUADS);
-            glVertex3f(-0.5f, 0.0f, -0.5f);
-            glVertex3f( 0.5f, 0.0f, -0.5f);
-            glVertex3f( 0.5f, 0.0f,  0.5f);
-            glVertex3f(-0.5f, 0.0f,  0.5f);
-            glEnd();
-            glPopMatrix();
-        }
-        glDepthMask(GL_TRUE);
-        glDisable(GL_BLEND);
-    }
+    static void drawProjectedShadow(const Object3D& object, const glm::vec3& lightPos, GLuint shadowShader, GLuint cubeVAO, float groundY = 0.0f) {
+        glUseProgram(shadowShader);
+        
+        // Lichtposition (L)
+        float Lx = lightPos.x;
+        float Ly = lightPos.y;
+        float Lz = lightPos.z;
 
-    // Replace your Object3D::drawProjectedShadow with this
-    static void drawProjectedShadow(const Object3D& obj,
-                                    const glm::vec3& lightPos,
-                                    float groundY = 0.01f){
-        // Model matrix: translate · (optional rotate) · scale
+        // Ebene (Y=groundY)
+        // Normal N=(0, 1, 0) -> A=0, B=1, C=0
+        // D (Abstand zum Ursprung) ist -groundY
+        float A = 0.0f;
+        float B = 1.0f;
+        float C = 0.0f;
+        // Bias: Verschiebt die Ebene leicht nach oben (Z-Fighting vermeiden)
+        float D = -groundY - 0.001f; 
+
+        // Dot product: L.P (Homogener Punkt L mit Ebene P) = Lx*A + Ly*B + Lz*C + 1*D
+        float dot = Lx * A + Ly * B + Lz * C + 1.0f * D;
+
+        // Planar Projection Matrix M (Standardformel)
         glm::mat4 M(1.0f);
-        M = glm::translate(M, obj.position);
 
-        // If you add rotation later, include it here, e.g.:
-        // M = glm::rotate(M, glm::radians(obj.yawDeg), glm::vec3(0,1,0));
+        // M_ij = (Dot) * delta_ij - L_i * P_j
+        
+        // Spalte 0 (x)
+        M[0][0] = dot - Lx * A;
+        M[1][0] = 0.0f - Lx * B;
+        M[2][0] = 0.0f - Lx * C;
+        M[3][0] = 0.0f - Lx * D;
 
-        M = glm::scale(M, obj.dimensions);
+        // Spalte 1 (y)
+        M[0][1] = 0.0f - Ly * A;
+        M[1][1] = dot - Ly * B;
+        M[2][1] = 0.0f - Ly * C;
+        M[3][1] = 0.0f - Ly * D;
 
-        // Unit cube corners in object space
-        static const glm::vec3 corners[8] = {
-            {-0.5f,-0.5f,-0.5f}, { 0.5f,-0.5f,-0.5f}, { 0.5f, 0.5f,-0.5f}, {-0.5f, 0.5f,-0.5f},
-            {-0.5f,-0.5f, 0.5f}, { 0.5f,-0.5f, 0.5f}, { 0.5f, 0.5f, 0.5f}, {-0.5f, 0.5f, 0.5f}
-        };
+        // Spalte 2 (z)
+        M[0][2] = 0.0f - Lz * A;
+        M[1][2] = 0.0f - Lz * B;
+        M[2][2] = dot - Lz * C;
+        M[3][2] = 0.0f - Lz * D;
 
-        std::vector<glm::vec3> proj; proj.reserve(8);
-        for (auto& c : corners) {
-            glm::vec4 w = M * glm::vec4(c, 1.0f);      // world-space corner
-            glm::vec3 p;
-            if (projectPointToGround(lightPos, glm::vec3(w), groundY, p)) {
-                proj.push_back(p);
-            }
-        }
-        if (proj.size() < 3) return;
+        // Spalte 3 (w)
+        M[0][3] = 0.0f - 1.0f * A;
+        M[1][3] = 0.0f - 1.0f * B;
+        M[2][3] = 0.0f - 1.0f * C;
+        M[3][3] = dot - 1.0f * D; 
 
-        auto hull = convexHullXZ(proj);
-        if (hull.size() < 3) return;
+        // Schattenmodell-Matrix = Projektionsmatrix * Objekt-Modell-Matrix
+        glm::mat4 shadowModel = M * object.getModelMatrix();
 
-        glDisable(GL_LIGHTING);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glDepthMask(GL_FALSE);
-        glColor4f(0.f, 0.f, 0.f, 0.35f);
+        GLint modelLoc = glGetUniformLocation(shadowShader, "model");
+        glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(shadowModel));
 
-        glBegin(GL_TRIANGLE_FAN);
-        for (auto& p : hull) glVertex3f(p.x, groundY, p.z);
-        glEnd();
-
-        glDepthMask(GL_TRUE);
-        glDisable(GL_BLEND);
+        glBindVertexArray(cubeVAO);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glBindVertexArray(0);
+        glUseProgram(0);
     }
-
-private:
-
 };
 
-// ===================== Ray / LiDAR =====================
-struct AABB { glm::vec3 mn, mx; int id; };
+// ===================== Grid helpers =====================
+// Create colored grid vertices around origin (XZ plane)
+static std::vector<float> generateGridVertices(int halfSize = 10) {
+    std::vector<float> vertices;
+    float lineColor[3] = {0.7f, 0.7f, 0.7f};
+    float centerColor[3] = {0.3f, 0.3f, 0.3f};
 
-static inline AABB makeAABB(const Object3D& o){
+    float yOffset = 0.001f; // Slightly above ground to avoid Z-fighting
+
+    for (int x = -halfSize; x <= halfSize; x++) {
+        bool isCenter = (x == 0);
+        auto [r, g, b] = std::tuple{isCenter ? centerColor[0] : lineColor[0],
+                                    isCenter ? centerColor[1] : lineColor[1],
+                                    isCenter ? centerColor[2] : lineColor[2]};
+        vertices.insert(vertices.end(), {
+            static_cast<float>(x), yOffset, static_cast<float>(-halfSize), r, g, b,
+            static_cast<float>(x), yOffset, static_cast<float>(halfSize),  r, g, b
+        });
+    }
+    for (int z = -halfSize; z <= halfSize; z++) {
+        bool isCenter = (z == 0);
+        auto [r, g, b] = std::tuple{isCenter ? centerColor[0] : lineColor[0],
+                                    isCenter ? centerColor[1] : lineColor[1],
+                                    isCenter ? centerColor[2] : lineColor[2]};
+        vertices.insert(vertices.end(), {
+            static_cast<float>(-halfSize), yOffset, static_cast<float>(z), r, g, b,
+            static_cast<float>(halfSize),  yOffset, static_cast<float>(z), r, g, b
+        });
+    }
+    return vertices;
+}
+
+// Create VAO/VBO for grid lines
+static void createGridVAO(GLuint& vao, GLuint& vbo, int& vertexCount) {
+    std::vector<float> gridVertices = generateGridVertices(10);
+    vertexCount = static_cast<int>(gridVertices.size() / 6);
+
+    glGenVertexArrays(1, &vao);
+    glBindVertexArray(vao);
+
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, gridVertices.size() * sizeof(float), gridVertices.data(), GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
+
+// Create VAO/VBO for ground plane
+static void createGroundVAO(GLuint& vao, GLuint& vbo) {
+        float groundVertices[] = {
+        // PosX, PosY, PosZ, NormalX, NormalY, NormalZ (6 floats pro Vertex)
+        -100.0f, 0.0f, -100.0f, 0.0f, 1.0f, 0.0f, // Unten links
+        100.0f, 0.0f, -100.0f, 0.0f, 1.0f, 0.0f, // Unten rechts
+        -100.0f, 0.0f,  100.0f, 0.0f, 1.0f, 0.0f, // Oben links
+
+        100.0f, 0.0f, -100.0f, 0.0f, 1.0f, 0.0f, // Unten rechts
+        100.0f, 0.0f,  100.0f, 0.0f, 1.0f, 0.0f, // Oben rechts
+        -100.0f, 0.0f,  100.0f, 0.0f, 1.0f, 0.0f  // Oben links
+    };
+
+    glGenVertexArrays(1, &vao);
+    glGenBuffers(1, &vbo);
+
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(groundVertices), groundVertices, GL_STATIC_DRAW);
+
+    // Position Attribute (Location 0)
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // Normale Attribute (Location 1) - Wichtig für den Schatten-Bias!
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
+
+// ===================== Cube mesh (for buildings/drone) =====================
+static void createCubeVAO(GLuint& vao, GLuint& vbo) {
+    // Interleaved (pos, normal). 36 vertices.
+    float cubeVertices[] = {
+        // Rückseite (-Z)
+        -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+        0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+        0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+        0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+        -0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+        -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
+
+        // Vorderseite (+Z)
+        -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+        0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+        0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+        0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+        -0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+        -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+
+        // Links (-X)
+        -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
+        -0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+        -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+        -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
+        -0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
+        -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
+
+        // Rechts (+X)
+        0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
+        0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+        0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+        0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
+        0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
+        0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
+
+        // Unten (-Y)
+        -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
+        0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
+        0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+        0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+        -0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
+        -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
+
+        // Oben (+Y)
+        -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,
+        0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,
+        0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+        0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+        -0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+        -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f
+    };
+
+    glGenVertexArrays(1, &vao);
+    glBindVertexArray(vao);
+
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
+
+    GLsizei stride = 6 * sizeof(float);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    glBindVertexArray(0);
+}
+
+static void createSensorVAO(GLuint& vao, GLuint& vbo) {
+
+    glGenVertexArrays(1, &vao);
+    glBindVertexArray(vao);
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    // VBO mit dynamischem Speicher reservieren (3 Floats pro Punkt/Vertex)
+    glBufferData(GL_ARRAY_BUFFER, 10000 * 3 * sizeof(float), NULL, GL_DYNAMIC_DRAW); 
+    // Position (location 0)
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+// ===================== Simple light/geometry helpers =====================
+static inline bool projectPointToGround(const glm::vec3& L, const glm::vec3& P, float yPlane, glm::vec3& out) {
+    glm::vec3 dir = P - L;
+    if (std::abs(dir.y) < 1e-6f) return false;
+    float t = (yPlane - L.y) / dir.y;
+    if (t <= 0.f) return false;
+    out = L + t * dir;
+    return true;
+}
+static std::vector<glm::vec3> convexHullXZ(std::vector<glm::vec3> pts); // forward
+
+// ===================== Lidar / Radar (simulation + debug draw) =====================
+struct AABB { glm::vec3 mn, mx; int id; };
+static inline AABB makeAABB(const Object3D& o) {
     glm::vec3 h = 0.5f * o.dimensions;
-    return { o.position - h, o.position + h, 0 };
+    return {o.position - h, o.position + h, 0};
 }
 
 static inline bool rayAABB(const glm::vec3& ro, const glm::vec3& rd, const AABB& b, float tMax, float& tHit) {
@@ -439,13 +519,11 @@ static inline bool rayAABB(const glm::vec3& ro, const glm::vec3& rd, const AABB&
 }
 
 struct Hit3D { bool ok; float range; glm::vec3 point; int objId; glm::vec3 dir; };
-
 static inline std::vector<Hit3D> simulateLidar3D(const Pose& p,
-                                   const std::vector<AABB>& world,
-                                   int beamsH, int beamsV,
-                                   float fovH_deg, float fovV_deg,
-                                   float maxR)
-{
+                                                 const std::vector<AABB>& world,
+                                                 int beamsH, int beamsV,
+                                                 float fovH_deg, float fovV_deg,
+                                                 float maxR) {
     std::vector<Hit3D> hits;
     hits.reserve(beamsH * beamsV);
 
@@ -474,62 +552,18 @@ static inline std::vector<Hit3D> simulateLidar3D(const Pose& p,
     return hits;
 }
 
-// Draw beams as thin red lines for hits (misses omitted)
-static inline void drawLidar3DBeams(const Pose& p, const std::vector<Hit3D>& hits) {
-    glLineWidth(1.0f);
-    glColor3f(1.0f, 0.0f, 0.0f);
-    glBegin(GL_LINES);
-    for (const auto& h : hits) {
-        if (!h.ok) continue;
-        glVertex3f(p.pos.x, p.pos.y, p.pos.z);
-        glVertex3f(h.point.x, h.point.y, h.point.z);
-    }
-    glEnd();
-    glLineWidth(1.0f);
-}
-
-// (Optional) draw hit points, if you want a point cloud as well
-static inline void drawLidar3DPoints(const std::vector<Hit3D>& hits, float maxR) {
-    glPointSize(3.f);
-    glBegin(GL_POINTS);
-    for (const auto& h : hits) {
-        if (!h.ok) continue;
-        float t = h.range / maxR;
-        glColor3f(1.f - t, 0.f, t);
-        glVertex3f(h.point.x, h.point.y, h.point.z);
-    }
-    glEnd();
-    glPointSize(1.f);
-}
-
-// ===================== RADAR (monostatic, simple) =====================
 struct RadarParams {
-    int   beamsH   = 60;
-    int   beamsV   = 8;
-    float fovH     = 90.f;   // deg
-    float fovV     = 20.f;   // deg
-    float maxR     = 150.f;  // m
-    float minR     = 2.0f;   // blind zone
-    float snr0     = 40.f;   // nominal at 1 m (dB-ish)
-    float snrMin   = 8.f;    // threshold
+    int beamsH = 60, beamsV = 8;
+    float fovH = 90.f, fovV = 20.f;
+    float maxR = 150.f, minR = 2.f;
+    float snr0 = 40.f, snrMin = 8.f;
 };
+struct RadarDet { bool ok; float range, vr, az, el; glm::vec3 point; int objId; };
 
-struct RadarDet {
-    bool ok;
-    float range;     // meters
-    float vr;        // radial velocity (m/s), + closing
-    float az;        // radians
-    float el;        // radians
-    glm::vec3 point; // world pos
-    int objId;
-};
-
-static inline std::vector<RadarDet> simulateRadar3D(
-        const Pose& sensorPose,
-        const glm::vec3& sensorVel, // drone velocity in world
-        const std::vector<AABB>& world,
-        const RadarParams& R)
-{
+static inline std::vector<RadarDet> simulateRadar3D(const Pose& sensorPose,
+                                                    const glm::vec3& sensorVel,
+                                                    const std::vector<AABB>& world,
+                                                    const RadarParams& R) {
     std::vector<RadarDet> dets;
     dets.reserve(R.beamsH * R.beamsV);
 
@@ -575,39 +609,359 @@ static inline std::vector<RadarDet> simulateRadar3D(
     return dets;
 }
 
-static inline void drawRadarBeams(const Pose& p, const std::vector<RadarDet>& dets) {
-    // beams
-    glLineWidth(1.0f);
-    glColor3f(0.0f, 0.9f, 0.9f); // teal
-    glBegin(GL_LINES);
-    for (const auto& d : dets) {
-        if (!d.ok) continue;
-        glVertex3f(p.pos.x, p.pos.y, p.pos.z);
-        glVertex3f(d.point.x, d.point.y, d.point.z);
-    }
-    glEnd();
-    glLineWidth(1.0f);
+// Zeichnet einen Würfel an der Lichtposition (unbeleuchtet)
+static inline void drawLightSource(const glm::vec3& lightPos, GLuint shaderProgram, GLuint vao, const glm::mat4& view, const glm::mat4& projection) {
+    glUseProgram(shaderProgram);
+    
+    // Setze View/Projection Matrizen
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uProjection"), 1, GL_FALSE, glm::value_ptr(projection));
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uView"), 1, GL_FALSE, glm::value_ptr(view));
+    
+    // Model Matrix (Würfel auf Lichtposition skalieren/platzieren)
+    glm::mat4 model = glm::mat4(1.0f);
+    model = glm::translate(model, lightPos);
+    model = glm::scale(model, glm::vec3(0.2f)); // Kleinere Licht-Kugel
+    
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
+    glUniform3f(glGetUniformLocation(shaderProgram, "uColor"), 1.0f, 1.0f, 0.0f); // Gelbe Lichtfarbe
+
+    glBindVertexArray(vao);
+    glDrawArrays(GL_TRIANGLES, 0, 36);
+    glBindVertexArray(0);
+    glUseProgram(0);
 }
 
-static inline void drawRadarPoints(const std::vector<RadarDet>& dets) {
-    // points colored by vr (red closing -> blue receding)
-    glPointSize(3.f);
-    glBegin(GL_POINTS);
-    for (const auto& d : dets) {
-        if (!d.ok) continue;
-        float t = glm::clamp((d.vr + 10.f) / 20.f, 0.f, 1.f); // map -10..+10 m/s
-        glColor3f(t, t +0.f, 1.f - t);
-        glVertex3f(d.point.x, d.point.y, d.point.z);
-    }
-    glEnd();
-    glPointSize(1.f);
+// ===================== Draw lines and points helpers =====================
+// Helfer zum Zeichnen von Punkten (LiDAR, Radar)
+static void drawPoints(const std::vector<glm::vec3>& points, const glm::vec3& color, float pointSize, GLuint shaderProgram, GLuint vao, GLuint vbo, const glm::mat4& view, const glm::mat4& projection) {
+    if (points.empty()) return;
+
+    // 1. Daten in VBO übertragen (dynamisches Update)
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    // Ersetze den VBO-Inhalt jedes Frame
+    glBufferData(GL_ARRAY_BUFFER, points.size() * sizeof(glm::vec3), points.data(), GL_DYNAMIC_DRAW); 
+    
+    // 2. Shader aktivieren
+    glUseProgram(shaderProgram);
+
+    // 3. Uniforms senden
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uProjection"), 1, GL_FALSE, glm::value_ptr(projection));
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uView"), 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f))); // Identitätsmatrix
+    glUniform3fv(glGetUniformLocation(shaderProgram, "uColor"), 1, glm::value_ptr(color));
+    glUniform1f(glGetUniformLocation(shaderProgram, "uPointSize"), pointSize);
+
+    // 4. Zeichnen
+    glEnable(GL_PROGRAM_POINT_SIZE); 
+    glEnable(GL_DEPTH_TEST);
+    glBindVertexArray(vao);
+    glDrawArrays(GL_POINTS, 0, points.size());
+    glBindVertexArray(0);
+    glDisable(GL_PROGRAM_POINT_SIZE);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glUseProgram(0);
 }
 
-// ===================== main =====================
+// Helfer zum Zeichnen von Linien (Radar Beams, LiDAR Beams)
+static void drawLines(const std::vector<glm::vec3>& vertices, const glm::vec3& color, float lineWidth, GLuint shaderProgram, GLuint vao, GLuint vbo, const glm::mat4& view, const glm::mat4& projection) {
+    if (vertices.empty()) return;
+
+    // 1. Daten in VBO übertragen (dynamisches Update)
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(glm::vec3), vertices.data(), GL_DYNAMIC_DRAW); 
+    
+    // 2. Shader aktivieren
+    glUseProgram(shaderProgram);
+
+    // 3. Uniforms senden
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uProjection"), 1, GL_FALSE, glm::value_ptr(projection));
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uView"), 1, GL_FALSE, glm::value_ptr(view));
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f))); // Identitätsmatrix
+    glUniform3fv(glGetUniformLocation(shaderProgram, "uColor"), 1, glm::value_ptr(color));
+    
+    glLineWidth(lineWidth);
+
+    // 4. Zeichnen
+    glEnable(GL_DEPTH_TEST);
+    glBindVertexArray(vao);
+    glDrawArrays(GL_LINES, 0, vertices.size());
+    glBindVertexArray(0);
+    
+    glLineWidth(1.0f); // Zurücksetzen
+    
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glUseProgram(0);
+}
+
+// ===================== Shadow map (depth-only FBO) =====================
+struct ShadowMap {
+    GLuint fbo = 0;
+    GLuint depthTex = 0;
+    unsigned w = 4096, h = 4096;
+
+    void init() {
+        glGenFramebuffers(1, &fbo);
+        glGenTextures(1, &depthTex);
+
+        glBindTexture(GL_TEXTURE_2D, depthTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, w, h, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        float border[] = {1, 1, 1, 1};
+        glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, border);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTex, 0);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            std::cerr << "ERROR::FRAMEBUFFER:: Shadow Map FBO incomplete\n";
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    void bindForWrite() const {
+        glViewport(0, 0, w, h);
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        glEnable(GL_DEPTH_TEST);
+    }
+
+    void bindForRead(GLuint shader, GLint samplerUniform = 0) const {
+        glActiveTexture(GL_TEXTURE0 + samplerUniform);
+        glBindTexture(GL_TEXTURE_2D, depthTex);
+        glUniform1i(glGetUniformLocation(shader, "uShadowMap"), samplerUniform);
+    }
+};
+
+// ===================== Camera state/update =====================
+struct Camera {
+    glm::vec3 pos{0.0f, 3.0f, 8.0f};
+    glm::vec3 up{0.0f, 1.0f, 0.0f};
+    glm::vec3 front{0.0f, 0.0f, -1.0f};
+    glm::vec3 right{1.0f, 0.0f, 0.0f};
+    float yaw = -90.f, pitch = -10.f;
+
+    glm::vec3 calcFront(float yaw_, float pitch_) const {
+        glm::vec3 f;
+        f.x = std::cos(glm::radians(yaw_)) * std::cos(glm::radians(pitch_));
+        f.y = std::sin(glm::radians(pitch_));
+        f.z = std::sin(glm::radians(yaw_)) * std::cos(glm::radians(pitch_));
+        return glm::normalize(f);
+    }
+};
+
+// Apply free-camera movement (WASD + CV for up/down)
+static void updateFreeCamera(Camera& cam, float dt, float speed) {
+    glm::vec3 move(0.0f);
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W)) move += cam.front;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S)) move -= cam.front;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A)) move -= cam.right;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D)) move += cam.right;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::C)) move += cam.up;
+    if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::V)) move -= cam.up;
+
+    if (glm::length(move) > 0.0f) cam.pos += glm::normalize(move) * (speed * dt);
+}
+
+// Place follow-camera behind/above drone and look forward
+static void updateFollowCamera(const Drone& drone, Camera& cam) {
+    const float back = 4.0f, up = 2.0f, lead = 2.0f;
+
+    float y = glm::radians(drone.p.yaw);
+    glm::vec3 F_cam = glm::normalize(glm::vec3(std::cos(y), 0.0f, std::sin(y)));
+
+    cam.pos = drone.p.pos - F_cam * back + cam.up * up;
+    glm::vec3 target = drone.p.pos + F_cam * lead;
+
+    cam.front = glm::normalize(target - cam.pos);
+    cam.right = glm::normalize(glm::cross(cam.front, cam.up));
+}
+
+// ===================== Scene load helpers =====================
+// Load objects from config.yaml; if missing, create defaults
+static std::vector<std::unique_ptr<Object3D>> loadObjectsOrDefault(const std::string& cfgPath) {
+    std::vector<std::unique_ptr<Object3D>> objects;
+    try {
+        YAML::Node config = YAML::LoadFile(cfgPath);
+        for (const auto& objectConfig : config["objects"]) {
+            objects.push_back(std::make_unique<Object3D>(objectConfig));
+        }
+        std::cout << "Loaded " << objects.size() << " objects from " << cfgPath << "\n";
+    } catch (...) {
+        std::cerr << "Error loading " << cfgPath << ", creating default objects...\n";
+        YAML::Node o1; o1["name"]="RedCube";   o1["position"]=std::vector<float>{0,1,0};  o1["dimensions"]=std::vector<float>{1,1,1};   o1["color"]=std::vector<float>{1,0,0};
+        YAML::Node o2; o2["name"]="GreenCube"; o2["position"]=std::vector<float>{3,1,2};  o2["dimensions"]=std::vector<float>{1,2,1};   o2["color"]=std::vector<float>{0,1,0};
+        YAML::Node o3; o3["name"]="BlueCube";  o3["position"]=std::vector<float>{-2,0.5f,1}; o3["dimensions"]=std::vector<float>{1,0.5f,1}; o3["color"]=std::vector<float>{0,0,1};
+        objects.push_back(std::make_unique<Object3D>(o1));
+        objects.push_back(std::make_unique<Object3D>(o2));
+        objects.push_back(std::make_unique<Object3D>(o3));
+    }
+    return objects;
+}
+
+// Build static AABB list for ray tests
+static std::vector<AABB> buildWorldAABBs(const std::vector<std::unique_ptr<Object3D>>& objects) {
+    std::vector<AABB> worldAABBs;
+    worldAABBs.reserve(objects.size());
+    for (size_t i = 0; i < objects.size(); ++i) {
+        auto box = makeAABB(*objects[i]);
+        box.id = static_cast<int>(i);
+        worldAABBs.push_back(box);
+    }
+    return worldAABBs;
+}
+
+// ===================== Rendering helpers =====================
+// Render all cubes (objects + drone) with object shader
+static void renderSceneCubes(GLuint shader, GLuint cubeVAO,
+                             const std::vector<std::unique_ptr<Object3D>>& objects,
+                             const Drone& drone) {
+    for (const auto& object : objects) object->draw(shader, cubeVAO);
+
+    // Drone
+    drawDroneBox(drone.p, drone.bodyScale, shader, cubeVAO);
+}
+
+static void renderGridLines(GLuint shader, GLuint gridVAO, int gridVertexCount,
+                            const glm::mat4& proj, const glm::mat4& view) {
+
+    // WICHTIG: Tiefentest deaktivieren, damit die Linien ÜBER der Bodenfläche gezeichnet werden,
+    // ohne Z-Fighting, oder verwenden Sie einen Polygon-Offset.
+    // glDisable(GL_DEPTH_TEST); 
+    glEnable(GL_POLYGON_OFFSET_LINE);
+    // glPolygonOffset(-2.0f, -2.0f);
+    
+    glUseProgram(shader);
+    glUniformMatrix4fv(glGetUniformLocation(shader, "uProjection"), 1, GL_FALSE, glm::value_ptr(proj));
+    glUniformMatrix4fv(glGetUniformLocation(shader, "uView"), 1, GL_FALSE, glm::value_ptr(view));
+    
+    // Model-Matrix muss auf Identity gesetzt werden, da die Linien im Weltraum sind.
+    glm::mat4 model = glm::mat4(1.0f);
+    glUniformMatrix4fv(glGetUniformLocation(shader, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
+
+    // Setzen Sie eine Gitterfarbe (heller als der Boden)
+    glm::vec3 lineColor = glm::vec3(0.5f, 0.5f, 0.5f); 
+    glUniform3fv(glGetUniformLocation(shader, "uColor"), 1, glm::value_ptr(lineColor));
+
+    glBindVertexArray(gridVAO);
+    glDrawArrays(GL_LINES, 0, gridVertexCount); // Zeichnet die Linien!
+    glBindVertexArray(0);
+
+    glDisable(GL_POLYGON_OFFSET_LINE);
+    // glEnable(GL_DEPTH_TEST); // Tiefentest wieder aktivieren
+}
+
+// Render full grid using grid shader + VAO
+static void renderGrid(GLuint shader, GLuint gridVAO, int gridVertexCount,
+                       const glm::mat4& proj, const glm::mat4& view,
+                       const glm::mat4& lightSpace, const glm::vec3& lightPos,
+                       const ShadowMap& sm) {
+    glUseProgram(shader);
+    glUniformMatrix4fv(glGetUniformLocation(shader, "uProjection"), 1, GL_FALSE, glm::value_ptr(proj));
+    glUniformMatrix4fv(glGetUniformLocation(shader, "uView"), 1, GL_FALSE, glm::value_ptr(view));
+
+    glUniformMatrix4fv(glGetUniformLocation(shader, "uLightSpaceMatrix"), 1, GL_FALSE, glm::value_ptr(lightSpace));
+    glUniform3fv(glGetUniformLocation(shader, "uLightPos"), 1, glm::value_ptr(lightPos));
+
+    // Light Space Matrix (needed to calculate fragment position in light space)
+    glUniformMatrix4fv(glGetUniformLocation(shader, "uLightSpaceMatrix"), 1, GL_FALSE, glm::value_ptr(lightSpace));
+
+    sm.bindForRead(shader, 0); // Bind shadow map to texture unit 0
+
+    glBindVertexArray(gridVAO);
+    glDrawArrays(GL_LINES, 0, gridVertexCount);
+    glBindVertexArray(0);
+
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glUseProgram(0);
+}
+
+static void renderGround(GLuint shader, GLuint groundVAO,
+                       const glm::mat4& proj, const glm::mat4& view,
+                       const glm::mat4& lightSpace, const glm::vec3& lightPos,
+                       const ShadowMap& sm // Die ShadowMap-Struktur
+                       ) {
+    glUseProgram(shader);
+
+    // Camera Matrices
+    glUniformMatrix4fv(glGetUniformLocation(shader, "uProjection"), 1, GL_FALSE, glm::value_ptr(proj));
+    glUniformMatrix4fv(glGetUniformLocation(shader, "uView"), 1, GL_FALSE, glm::value_ptr(view));
+
+    // Shadow Mapping Uniforms
+    glUniformMatrix4fv(glGetUniformLocation(shader, "uLightSpaceMatrix"), 1, GL_FALSE, glm::value_ptr(lightSpace));
+    glUniform3fv(glGetUniformLocation(shader, "uLightPos"), 1, glm::value_ptr(lightPos));
+
+    // Bodenfarbe setzen
+    glm::vec3 groundColor = glm::vec3(1.0f, 1.0f, 1.0f);
+    glUniform3fv(glGetUniformLocation(shader, "uGroundColor"), 1, glm::value_ptr(groundColor));
+
+    // Shadow Map Binden (Textur-Einheit 0)
+    sm.bindForRead(shader, 0);
+
+    glBindVertexArray(groundVAO);
+    // WICHTIG: Draw call für Dreiecke
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindVertexArray(0);
+
+    // Aufräumen
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+// One-pass depth render for shadow map
+static void shadowPass(const ShadowMap& sm, GLuint shadowShader,
+                       const glm::mat4& lightSpace,
+                       GLuint cubeVAO,
+                       const std::vector<std::unique_ptr<Object3D>>& objects,
+                       const Drone& drone) {
+    sm.bindForWrite();
+    glUseProgram(shadowShader);
+    glUniformMatrix4fv(glGetUniformLocation(shadowShader, "uLightSpaceMatrix"), 1, GL_FALSE, glm::value_ptr(lightSpace));
+
+    // Draw objects using the same VAO; shader uses uModel only
+    // Reuse the same routine which sets uModel for each object
+    // but bind shadow shader instead of object shader.
+    for (const auto& obj : objects) obj->draw(shadowShader, cubeVAO);
+    drawDroneBox(drone.p, drone.bodyScale, shadowShader, cubeVAO);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+// Main pass (color) with shadow sampling
+static void mainPass(GLuint objectShader, GLuint cubeVAO,
+                     const glm::mat4& proj, const glm::mat4& view,
+                     const glm::mat4& lightSpace, const glm::vec3& lightPos,
+                     const ShadowMap& sm,
+                     const std::vector<std::unique_ptr<Object3D>>& objects,
+                     const Drone& drone) {
+    // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_DEPTH_TEST);
+
+    glUseProgram(objectShader);
+    glUniformMatrix4fv(glGetUniformLocation(objectShader, "uProjection"), 1, GL_FALSE, glm::value_ptr(proj));
+    glUniformMatrix4fv(glGetUniformLocation(objectShader, "uView"), 1, GL_FALSE, glm::value_ptr(view));
+    glUniform3fv(glGetUniformLocation(objectShader, "uLightPos"), 1, glm::value_ptr(lightPos));
+    glUniformMatrix4fv(glGetUniformLocation(objectShader, "uLightSpaceMatrix"), 1, GL_FALSE, glm::value_ptr(lightSpace));
+
+    sm.bindForRead(objectShader, 0);
+
+    renderSceneCubes(objectShader, cubeVAO, objects, drone);
+
+    glUseProgram(0);
+    // glDisable(GL_DEPTH_TEST);
+}
+
+// ===================== Application (window, loop) =====================
 int main() {
-    std::cout << "=== UAM Simulator - FollowCam fix + LiDAR anchored to drone ===\n";
+    std::cout << "=== UAM Simulator — modularized ===\n";
 
-    // Window
+    // ---- Create window and GL context
     sf::ContextSettings settings;
     settings.depthBits = 24;
     settings.stencilBits = 8;
@@ -616,228 +970,89 @@ int main() {
     settings.minorVersion = 1;
     settings.attributeFlags = sf::ContextSettings::Core;
 
-    sf::RenderWindow window(sf::VideoMode({1200, 900}),
-                            "UAM Simulator",
-                            sf::Style::Default,
-                            sf::State::Windowed,
-                            settings);
-
-    if (!window.setActive(true))
-        std::cerr << "Warning: Could not activate OpenGL context!\n";
+    sf::RenderWindow window(
+        sf::VideoMode({1200, 900}),
+        "UAM Simulator",
+        sf::Style::Default,
+        sf::State::Windowed,
+        settings
+    );
+    if (!window.setActive(true)) std::cerr << "Warning: Could not activate OpenGL context!\n";
 
     glewExperimental = GL_TRUE;
-    GLenum err = glewInit();
-   if (GLEW_OK != err) {
-        std::cerr << "Error: " << glewGetErrorString(err) << std::endl;
-        return -1;
-    }
-    std::cout << "Using GLEW Version: " << glewGetString(GLEW_VERSION) << std::endl;
-    // ===========================
+    if (glewInit() != GLEW_OK) { std::cerr << "GLEW init failed\n"; return -1; }
 
     window.setVerticalSyncEnabled(true);
-    std::cout << "OpenGL Version: " << glGetString(GL_VERSION) << "\n";
-    std::cout << "Renderer: " << glGetString(GL_RENDERER) << "\n";
+    std::cout << "OpenGL: " << glGetString(GL_VERSION) << " | Renderer: " << glGetString(GL_RENDERER) << "\n";
 
-    GLuint gridShaderProgram = createShaderProgram("grid.vert", "grid.frag");
-    if(gridShaderProgram == 0) {
-        std::cerr << "Failed to create grid shader program. Exiting.\n";
-        return -1;
-    }
+    // ---- Compile shaders
+    GLuint gridShader   = glutil::createShaderProgram("grid.vert", "grid.frag");
+    GLuint objectShader = glutil::createShaderProgram("object.vert", "object.frag");
+    GLuint shadowShader = glutil::createShaderProgram("shadow.vert", "shadow.frag");
+    GLuint pointLineShaderProgram = glutil::createShaderProgram("point_line.vert", "point_line.frag");
+    if (!gridShader || !objectShader || !shadowShader || !pointLineShaderProgram) return -1;
 
-    // ----- Gitter VBO/VAO Setup -----
-    std::vector<float> gridVertices = generateGridVertices(10);
-    int gridVertexCount = gridVertices.size() / 6; // (pos(3) + color(3))
+    // ---- Create geometry
+    GLuint gridVAO = 0, gridVBO = 0; int gridVertexCount = 0;
+    createGridVAO(gridVAO, gridVBO, gridVertexCount);
 
-    GLuint gridVAO, gridVBO;
+    GLuint cubeVAO = 0, cubeVBO = 0;
+    createCubeVAO(cubeVAO, cubeVBO);
 
-    // 1. VAO erstellen und binden
-    glGenVertexArrays(1, &gridVAO);
-    glBindVertexArray(gridVAO);
+    GLuint sensorVAO = 0, sensorVBO = 0; 
+    createSensorVAO(sensorVAO, sensorVBO);
 
-    // 2. VBO erstellen, binden und mit Daten füllen
-    glGenBuffers(1, &gridVBO);
-    glBindBuffer(GL_ARRAY_BUFFER, gridVBO);
-    glBufferData(GL_ARRAY_BUFFER, 
-                 gridVertices.size() * sizeof(float), 
-                 gridVertices.data(), 
-                 GL_STATIC_DRAW);
+    GLuint groundVAO = 0, groundVBO = 0;
+    createGroundVAO(groundVAO, groundVBO);
 
-    // 3. Vertex Attribute Pointer setzen (sagen OpenGL, wie die Daten im VBO zu lesen sind)
-    
-    // layout (location = 0) in vec3 aPos;
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
+    // ---- Shadow map
+    ShadowMap shadow; shadow.init();
 
-    // layout (location = 1) in vec3 aColor;
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-
-    // 4. Bindung aufheben (gute Praxis)
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
-
-    GLuint objectShaderProgram = createShaderProgram("object.vert", "object.frag");
-if (objectShaderProgram == 0) return -1;
-
-// ----- Einheits-Würfel VBO/VAO Setup -----
-// 36 Vertices (6 pro Seite * 6 Seiten)
-// Jede Zeile: 3x Position, 3x Normale
-float cubeVertices[] = {
-    // Rückseite (-Z)
-    -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
-     0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
-     0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
-     0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
-    -0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
-    -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,
-
-    // Vorderseite (+Z)
-    -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
-     0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
-     0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
-     0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
-    -0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
-    -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
-
-    // Links (-X)
-    -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
-    -0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
-    -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
-    -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,
-    -0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
-    -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,
-
-    // Rechts (+X)
-     0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
-     0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
-     0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
-     0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,
-     0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
-     0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,
-
-    // Unten (-Y)
-    -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
-     0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
-     0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
-     0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
-    -0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,
-    -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,
-
-    // Oben (+Y)
-    -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,
-     0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,
-     0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
-     0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
-    -0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
-    -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f
-};
-
-GLuint cubeVAO, cubeVBO;
-glGenVertexArrays(1, &cubeVAO);
-glBindVertexArray(cubeVAO);
-
-glGenBuffers(1, &cubeVBO);
-glBindBuffer(GL_ARRAY_BUFFER, cubeVBO);
-glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
-
-// Stride (Schrittweite) ist jetzt 6 floats
-GLsizei stride = 6 * sizeof(float);
-
-// layout (location = 0) in vec3 aPos;
-glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (void*)0);
-glEnableVertexAttribArray(0);
-
-// layout (location = 1) in vec3 aNormal;
-glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (void*)(3 * sizeof(float)));
-glEnableVertexAttribArray(1);
-
-glBindVertexArray(0); // VAO freigeben 
-
-    // GL state
+    // ---- Static GL state
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+    // ---- Scene objects
+    auto objects = loadObjectsOrDefault("config.yaml");
+    auto worldAABBs = buildWorldAABBs(objects);
 
-
-    // Load objects
-    std::vector<std::unique_ptr<Object3D>> objects;
-    try {
-        YAML::Node config = YAML::LoadFile("config.yaml");
-        for (const auto& objectConfig : config["objects"]) {
-            objects.push_back(std::make_unique<Object3D>(objectConfig));
-        }
-        std::cout << "Loaded " << objects.size() << " objects\n";
-    } catch (const YAML::Exception& ) {
-        std::cerr << "Error loading config.yaml, creating default objects...\n";
-        YAML::Node o1; o1["name"]="RedCube";   o1["position"]=std::vector<float>{0,1,0};  o1["dimensions"]=std::vector<float>{1,1,1};   o1["color"]=std::vector<float>{1,0,0};
-        YAML::Node o2; o2["name"]="GreenCube"; o2["position"]=std::vector<float>{3,1,2};  o2["dimensions"]=std::vector<float>{1,2,1};   o2["color"]=std::vector<float>{0,1,0};
-        YAML::Node o3; o3["name"]="BlueCube";  o3["position"]=std::vector<float>{-2,0.5f,1}; o3["dimensions"]=std::vector<float>{1,0.5f,1}; o3["color"]=std::vector<float>{0,0,1};
-        objects.push_back(std::make_unique<Object3D>(o1));
-        objects.push_back(std::make_unique<Object3D>(o2));
-        objects.push_back(std::make_unique<Object3D>(o3));
-    }
-
-    // Static AABBs for buildings
-    std::vector<AABB> worldAABBs;
-    worldAABBs.reserve(objects.size());
-    for (size_t i=0;i<objects.size(); ++i) {
-        auto box = makeAABB(*objects[i]);
-        box.id = (int)i;
-        worldAABBs.push_back(box);
-    }
-
-    // Grid
-    // std::vector<float> gridVertices = generateGridVertices(10);
-
-    // Light & shadow
-    glm::vec3 lightPosition(5.0f, 8.0f, 3.0f);
-    bool showLightSource = true;
+    // ---- Lighting
+    glm::vec3 lightPos(5.0f, 8.0f, 3.0f);
     bool enableShadows = true;
 
-    // Camera state (free-cam values used only when followDrone=false)
-    glm::vec3 cameraPos  = glm::vec3(0.0f, 3.0f, 8.0f);
-    glm::vec3 cameraUp   = glm::vec3(0.0f, 1.0f, 0.0f);
-    float yaw   = -90.0f;
-    float pitch = -10.0f;
-    const float yawSpeed = 60.0f;
+    // ---- Camera & modes
+    Camera cam;
+    float yawSpeed = 60.f;
     bool enableMouseLook = false;
     bool followDrone = true;
     sf::Vector2i windowCenter(window.getSize().x / 2, window.getSize().y / 2);
 
-    auto updateCameraFront = [&](float yaw_, float pitch_) -> glm::vec3 {
-        glm::vec3 front;
-        front.x = std::cos(glm::radians(yaw_)) * std::cos(glm::radians(pitch_));
-        front.y = std::sin(glm::radians(pitch_));
-        front.z = std::sin(glm::radians(yaw_)) * std::cos(glm::radians(pitch_));
-        return glm::normalize(front);
-    };
-    glm::vec3 cameraFront = updateCameraFront(yaw, pitch);
-    glm::vec3 cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
-    float velocity = 5.0f;
+    // ---- Drone & sensors
+    Drone drone; drone.p.yaw = -90.f;
 
-    // Drone: start looking along -Z like your original camera feel
-    Drone drone;
-    drone.p.yaw = -90.f;
-
-    // Radar + velocity tracking
-    bool enableRadar = false;
-    RadarParams radarCfg;
-    glm::vec3   prevDronePos = drone.p.pos;
-    bool        prevPosValid = false;
-    glm::vec3   droneVel     = glm::vec3(0);
-
-    sf::Clock deltaClock;
-    sf::Clock fpsCounter;
-    int frameCount = 0;
-
-    // Lidar
     bool enableLidar = false;
+    bool enableRadar = false;
+    bool enableLightSource = false;
+    RadarParams radarCfg;
+    glm::vec3 prevDronePos = drone.p.pos, droneVel{0,0,0};
+    bool prevPosValid = false;
 
-    // Events
+    // ---- Lidar config
+    const int   beamsH   = 360;
+    const int   beamsV   = 16;
+    const float fovH_deg = 360.f;
+    const float fovV_deg = 45.f;
+    const float lidarMax = 50.f;
+
+    // ---- Timing
+    sf::Clock deltaClock, fpsCounter;
+    int frameCount = 0;
+    float dtSmooth = 1.f/60.f;
+
+    // ---- Events handlers (use your window.handleEvents helper)
     const auto onClose = [&](const sf::Event::Closed&) { window.close(); };
-
     const auto onKeyPressed = [&](const sf::Event::KeyPressed& keyPressed) {
         using sc = sf::Keyboard::Scancode;
         if (keyPressed.scancode == sc::M) {
@@ -845,243 +1060,230 @@ glBindVertexArray(0); // VAO freigeben
             window.setMouseCursorVisible(!enableMouseLook);
             if (enableMouseLook) sf::Mouse::setPosition(windowCenter, window);
             std::cout << "Mouse look: " << (enableMouseLook ? "ON" : "OFF") << "\n";
-        }
-        else if (keyPressed.scancode == sc::B) {
-            showLightSource = !showLightSource;
-            std::cout << "Light gizmo: " << (showLightSource ? "ON" : "OFF") << "\n";
-        }
-        else if (keyPressed.scancode == sc::H) {
+        } else if (keyPressed.scancode == sc::B) {
+            enableLightSource = !enableLightSource;
+            std::cout << "Light source cube: " << (enableLightSource ? "ON" : "OFF") << "\n";
+        } else if (keyPressed.scancode == sc::H) {
             enableShadows = !enableShadows;
             std::cout << "Shadows: " << (enableShadows ? "ON" : "OFF") << "\n";
-        }
-        else if (keyPressed.scancode == sc::F) {
+        } else if (keyPressed.scancode == sc::F) {
             followDrone = !followDrone;
             std::cout << "Follow drone: " << (followDrone ? "ON" : "OFF") << "\n";
-        }
-        else if (keyPressed.scancode == sc::Escape) {
+        } else if (keyPressed.scancode == sc::Escape) {
             window.close();
-        }
-        else if (keyPressed.scancode == sc::L) {
+        } else if (keyPressed.scancode == sc::L) {
             enableLidar = !enableLidar;
             std::cout << "Lidar: " << (enableLidar ? "ON" : "OFF") << "\n";
-        }
-        else if (keyPressed.scancode == sc::R) {
+        } else if (keyPressed.scancode == sc::R) {
             enableRadar = !enableRadar;
             std::cout << "Radar: " << (enableRadar ? "ON" : "OFF") << "\n";
         }
 
-        // Light control
+        // Light control (arrow keys + PageUp/Down)
         float lightSpeed = 0.5f;
-        if (keyPressed.scancode == sc::Up)      lightPosition.z -= lightSpeed;
-        if (keyPressed.scancode == sc::Down)    lightPosition.z += lightSpeed;
-        if (keyPressed.scancode == sc::Left)    lightPosition.x -= lightSpeed;
-        if (keyPressed.scancode == sc::Right)   lightPosition.x += lightSpeed;
-        if (keyPressed.scancode == sc::PageUp)  lightPosition.y += lightSpeed;
-        if (keyPressed.scancode == sc::PageDown)lightPosition.y -= lightSpeed;
+        if (keyPressed.scancode == sc::Up)       lightPos.z -= lightSpeed;
+        if (keyPressed.scancode == sc::Down)     lightPos.z += lightSpeed;
+        if (keyPressed.scancode == sc::Left)     lightPos.x -= lightSpeed;
+        if (keyPressed.scancode == sc::Right)    lightPos.x += lightSpeed;
+        if (keyPressed.scancode == sc::PageUp)   lightPos.y += lightSpeed;
+        if (keyPressed.scancode == sc::PageDown) lightPos.y -= lightSpeed;
     };
-
-    const auto onMouseMoved = [&](const sf::Event::MouseMoved& mouseMoved) {
+    const auto onMouseMoved = [&](const sf::Event::MouseMoved& e) {
         if (enableMouseLook && !followDrone) {
-            float xoffset = static_cast<float>(mouseMoved.position.x - windowCenter.x);
-            float yoffset = static_cast<float>(windowCenter.y - mouseMoved.position.y);
+            float xoffset = static_cast<float>(e.position.x - windowCenter.x);
+            float yoffset = static_cast<float>(windowCenter.y - e.position.y);
             sf::Mouse::setPosition(windowCenter, window);
 
             float sensitivity = 0.1f;
-            yaw   += xoffset * sensitivity;
-            pitch += yoffset * sensitivity;
+            cam.yaw   += xoffset * sensitivity;
+            cam.pitch += yoffset * sensitivity;
+            cam.pitch = glm::clamp(cam.pitch, -89.f, 89.f);
 
-            if (pitch > 89.0f)  pitch = 89.0f;
-            if (pitch < -89.0f) pitch = -89.0f;
-
-            cameraFront = updateCameraFront(yaw, pitch);
-            cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
+            cam.front = cam.calcFront(cam.yaw, cam.pitch);
+            cam.right = glm::normalize(glm::cross(cam.front, cam.up));
         }
     };
 
-    std::cout << "\n=== Controls ===\n";
-    std::cout << "WASD: Drone move   Q/E: Yaw (Q=left/CCW)   C/V: Up/Down\n";
-    std::cout << "F: Toggle follow camera   M: Toggle mouse look (free cam)\n";
-    std::cout << "Arrows + PgUp/PgDn: Move light   B/H: Gizmo/Shadows   ESC: Exit\n";
+    std::cout << "\n=== Controls ===\n"
+              << "WASD: move, Q/E: yaw (drone), C/V: up/down\n"
+              << "F: follow cam, M: mouse look (free cam), L: LiDAR, R: RADAR, H: shadows, ESC: quit\n"
+              << "Arrows/PgUp/PgDn: move light\n";
 
-    // LiDAR config
-    const int   beamsH   = 360;
-    const int   beamsV   = 16;
-    const float fovH_deg = 360.f;
-    const float fovV_deg = 45.f;
-    const float lidarMax = 50.f;
-
-    // Main loop
-    float dtSmooth = 1.f/60.f;
+    // ---- Main loop
     while (window.isOpen()) {
         float dt = deltaClock.restart().asSeconds();
         dt = std::min(dt, 0.1f);
-        dtSmooth = 0.9f*dtSmooth + 0.1f*dt;
+        dtSmooth = 0.9f * dtSmooth + 0.1f * dt;
 
         window.handleEvents(
             onClose,
-            [](const sf::Event::Resized&){},
+            [](const sf::Event::Resized&) {},
             onKeyPressed,
-            [](const sf::Event::KeyReleased&){},
-            [](const sf::Event::MouseButtonPressed&){},
-            [](const sf::Event::MouseButtonReleased&){},
+            [](const sf::Event::KeyReleased&) {},
+            [](const sf::Event::MouseButtonPressed&) {},
+            [](const sf::Event::MouseButtonReleased&) {},
             onMouseMoved,
-            [](const sf::Event::MouseWheelScrolled&){}
+            [](const sf::Event::MouseWheelScrolled&) {}
         );
 
-        
-
-        // Update drone pose first (so camera & LiDAR use the new pose)
-        
-        // Camera
+        // ---- Update camera/drone
         if (!followDrone) {
-            // free-cam mode
-            glm::vec3 movement(0.0f);
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W)) movement += cameraFront;
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S)) movement -= cameraFront;
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A)) movement -= cameraRight;
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D)) movement += cameraRight;
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::C)) movement += cameraUp;
-            if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::V)) movement -= cameraUp;
-            
+            // Free camera movement and yaw (Q/E) like before
             if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::E)) {
-                yaw += yawSpeed * dtSmooth; // keep free-cam E = right
-                cameraFront = updateCameraFront(yaw, pitch);
-                cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
+                cam.yaw += yawSpeed * dtSmooth;
+                cam.front = cam.calcFront(cam.yaw, cam.pitch);
+                cam.right = glm::normalize(glm::cross(cam.front, cam.up));
             }
             if (sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Q)) {
-                yaw -= yawSpeed * dtSmooth; // free-cam Q = left
-                cameraFront = updateCameraFront(yaw, pitch);
-                cameraRight = glm::normalize(glm::cross(cameraFront, cameraUp));
+                cam.yaw -= yawSpeed * dtSmooth;
+                cam.front = cam.calcFront(cam.yaw, cam.pitch);
+                cam.right = glm::normalize(glm::cross(cam.front, cam.up));
             }
-            
-            if (glm::length(movement) > 0.0f) {
-                movement = glm::normalize(movement) * velocity * dtSmooth;
-                cameraPos += movement;
-            }
+            updateFreeCamera(cam, dtSmooth, 5.0f);
         } else {
             updateDrone(drone, dtSmooth);
-            
-            // Drone velocity (for RADAR Doppler)
+
             if (!prevPosValid) { prevPosValid = true; prevDronePos = drone.p.pos; }
-            droneVel     = (drone.p.pos - prevDronePos) / std::max(dtSmooth, 1e-4f);
+            droneVel = (drone.p.pos - prevDronePos) / std::max(dtSmooth, 1e-4f);
             prevDronePos = drone.p.pos;
 
-            // FOLLOW MODE — deterministic, no smoothing, no inversion
-            // Use drone yaw to place camera directly behind it and look forward
-            const float followBack = 4.0f;
-            const float followUp   = 2.0f;
-            const float followLead = 2.0f;
-
-            // Horizontal forward from *drone yaw* only (ignore drone pitch for camera placement)
-            float y = glm::radians(drone.p.yaw);
-            glm::vec3 F_cam(std::cos(y), 0.0f, std::sin(y)); F_cam = glm::normalize(F_cam);
-            glm::vec3 U(0,1,0);
-
-            cameraPos   = drone.p.pos - F_cam * followBack + U * followUp;
-            glm::vec3 target = drone.p.pos + F_cam * followLead;
-            
-            cameraFront = glm::normalize(target - cameraPos);
-            cameraRight = glm::normalize(glm::cross(cameraFront, U));
+            updateFollowCamera(drone, cam);
         }
 
-        // Render
+        // ---- Matrices
         glClearColor(0.8f, 0.9f, 1.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glMatrixMode(GL_PROJECTION);
-        glLoadIdentity();
-        float aspectRatio = static_cast<float>(window.getSize().x) / static_cast<float>(window.getSize().y);
-        glm::mat4 projection = glm::perspective(glm::radians(45.0f), aspectRatio, 0.5f, 80.0f);
-        glLoadMatrixf(glm::value_ptr(projection));
+        float aspect = static_cast<float>(window.getSize().x) / static_cast<float>(window.getSize().y);
+        glm::mat4 projection = glm::perspective(glm::radians(45.0f), aspect, 0.5f, 80.0f);
+        glm::mat4 view = glm::lookAt(cam.pos, cam.pos + cam.front, cam.up);
 
-        glMatrixMode(GL_MODELVIEW);
-        glLoadIdentity();
-        glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
-        glLoadMatrixf(glm::value_ptr(view));
+        // ---- Light space (orthographic, directional-like)
+        float nearPlane = 1.0f, farPlane = 70.0f;
+        glm::mat4 lightProj = glm::ortho(-20.0f, 20.0f, -20.0f, 20.0f, nearPlane, farPlane);
+        glm::mat4 lightView = glm::lookAt(lightPos, glm::vec3(0.0f, 0.0f, 0.0f), cam.up);
+        glm::mat4 lightSpace = lightProj * lightView;
 
-        // Grid
-        // Stattdessen haben wir bereits die Matrizen von glm!
-        // float aspectRatio = static_cast<float>(window.getSize().x) / static_cast<float>(window.getSize().y);
-        // glm::mat4 projection = glm::perspective(glm::radians(45.0f), aspectRatio, 0.5f, 80.0f);
-        // glm::mat4 view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
-
-
-        // === Gitter zeichnen (Modern) ===
-        glDisable(GL_LIGHTING); // <-- Diese alten Aufrufe sind jetzt wirkungslos, aber ok
-        
-        glUseProgram(gridShaderProgram); // 1. Shader aktivieren
-        
-        // 2. Uniforms setzen (Matrizen an den Shader senden)
-        glUniformMatrix4fv(glGetUniformLocation(gridShaderProgram, "uProjection"), 1, GL_FALSE, glm::value_ptr(projection));
-        glUniformMatrix4fv(glGetUniformLocation(gridShaderProgram, "uView"), 1, GL_FALSE, glm::value_ptr(view));
-
-        // 3. VAO binden und zeichnen
-        glBindVertexArray(gridVAO);
-        glDrawArrays(GL_LINES, 0, gridVertexCount); // Zeichne die Linien!
-        // glBindVertexArray(0); // 4. VAO lösen
-        
-        glUseProgram(0); // 5. Shader deaktivieren
-
-        // Shadows
+        // ---- Pass 1: Shadow depth
         if (enableShadows) {
-            for (const auto& object : objects)
-                Object3D::drawProjectedShadow(*object, lightPosition, 0.01f);
-            drawDroneProjectedShadow(drone, lightPosition);
+            shadowPass(shadow, shadowShader, lightSpace, cubeVAO, objects, drone);
         }
 
-        glUseProgram(objectShaderProgram); // 1. Objekt-Shader aktivieren
+        // ---- Pass 2: Grid + scene
+        glViewport(0, 0, window.getSize().x, window.getSize().y);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        // Grid (no lighting)
         
-        // Setze die Uniforms, die für ALLE Objekte gleich sind
-        glUniformMatrix4fv(glGetUniformLocation(objectShaderProgram, "uProjection"), 1, GL_FALSE, glm::value_ptr(projection));
-        glUniformMatrix4fv(glGetUniformLocation(objectShaderProgram, "uView"), 1, GL_FALSE, glm::value_ptr(view));
-        glUniform3fv(glGetUniformLocation(objectShaderProgram, "uLightPos"), 1, glm::value_ptr(lightPosition));
+        renderGround(gridShader, groundVAO, projection, view, lightSpace, lightPos, shadow);
+        
+        // Opaque scene with shadow map
+        mainPass(objectShader, cubeVAO, projection, view, lightSpace, lightPos, shadow, objects, drone);
+        
+        renderGridLines(pointLineShaderProgram, gridVAO, gridVertexCount, projection, view);
+        // renderGrid(gridShader, gridVAO, gridVertexCount, projection, view, lightSpace, lightPos, shadow);
 
-        // Buildings
-        for (const auto& object : objects) {
-            object->draw(objectShaderProgram, cubeVAO);
+        if (enableLightSource) {
+            drawLightSource(lightPos, pointLineShaderProgram, cubeVAO, view, projection);
         }
 
-        // Drone
-        drawDroneBox(drone.p, drone.bodyScale, objectShaderProgram, cubeVAO);
-
-        // Light
-        // if (showLightSource) drawLightSource(lightPosition);
-
-        // LiDAR (anchored to the DRONE pose)
+        // ---- Sensors (debug render)
         auto hits = simulateLidar3D(drone.p, worldAABBs, beamsH, beamsV, fovH_deg, fovV_deg, lidarMax);
-        
-        if(enableLidar)
-        // drawLidar3DBeams(drone.p, hits);
-        drawLidar3DPoints(hits, lidarMax); // optional
+        if (enableLidar) {
+            // LiDAR Punkte (Point Cloud)
+            std::vector<glm::vec3> lidarPoints;
+            std::vector<glm::vec3> lidarBeams;
+            for (const auto& hit : hits) {
+                if (hit.ok) {
+                    lidarPoints.push_back(hit.point);
+                    // Lidar Beams (Linien vom Zentrum zu den Punkten)
+                    lidarBeams.push_back(drone.p.pos);
+                    lidarBeams.push_back(hit.point);
+                }
+            }
+            
+            // Punkte zeichnen (rot)
+            drawPoints(lidarPoints, glm::vec3(1.0f, 0.0f, 0.0f), 3.0f, pointLineShaderProgram, sensorVAO, sensorVBO, view, projection);
+            // Linien zeichnen 
+            drawLines(lidarBeams, glm::vec3(1.0f, 0.0f, 0.0f), 1.0f, pointLineShaderProgram, sensorVAO, sensorVBO, view, projection);
+        }
 
-        // RADAR (anchored to drone)
         auto radarDets = simulateRadar3D(drone.p, droneVel, worldAABBs, radarCfg);
-        
-        if(enableRadar)
-        // drawRadarBeams(drone.p, radarDets);
-        drawRadarPoints(radarDets);
+        if (enableRadar) {
+            std::vector<glm::vec3> radarPoints;
+            std::vector<glm::vec3> radarBeams;
+            
+            // Fülle die Daten
+            for (const auto& det : radarDets) {
+                if (det.ok) {
+                    radarPoints.push_back(det.point);
+                    radarBeams.push_back(drone.p.pos);
+                    radarBeams.push_back(det.point);
+                }
+            }
+            
+            // Punkte zeichnen (Cyan/Grün - VR-Färbung wurde der Einfachheit halber im Helper auf festes Grün gesetzt)
+            // Hinweis: Für eine dynamische Färbung nach vr müsste ein Shader mit einem zusätzlichen VBO für die Farbe verwendet werden.
+            drawPoints(radarPoints, glm::vec3(0.0f, 1.0f, 0.0f), 2.0f, pointLineShaderProgram, sensorVAO, sensorVBO, view, projection);
+            
+            // Linien zeichnen (Cyan)
+            drawLines(radarBeams, glm::vec3(0.0f, 0.9f, 0.9f), 1.0f, pointLineShaderProgram, sensorVAO, sensorVBO, view, projection);
+        }
 
         window.display();
 
-        // FPS
+        // ---- FPS
         frameCount++;
         if (fpsCounter.getElapsedTime().asSeconds() >= 1.0f) {
             std::cout << "FPS: " << frameCount << " | Light: ("
-                      << lightPosition.x << ", " << lightPosition.y << ", " << lightPosition.z << ")\n";
+                      << lightPos.x << ", " << lightPos.y << ", " << lightPos.z << ")\n";
             frameCount = 0;
             fpsCounter.restart();
         }
     }
 
-    // Am Ende von main(), vor return 0:
+    // ---- Cleanup
     glDeleteVertexArrays(1, &gridVAO);
     glDeleteBuffers(1, &gridVBO);
-    glDeleteProgram(gridShaderProgram);
+    glDeleteProgram(gridShader);
+    
+    glDeleteVertexArrays(1, &groundVAO);
+    glDeleteBuffers(1, &groundVBO);
 
     glDeleteVertexArrays(1, &cubeVAO);
     glDeleteBuffers(1, &cubeVBO);
-    glDeleteProgram(objectShaderProgram);
+    glDeleteProgram(objectShader);
+    glDeleteProgram(shadowShader);
+
+    glDeleteVertexArrays(1, &sensorVAO);
+    glDeleteBuffers(1, &sensorVBO);
+    glDeleteProgram(pointLineShaderProgram);
 
     std::cout << "Exiting successfully!\n";
     return 0;
+}
+
+// ===================== Implementations left as-is =====================
+static std::vector<glm::vec3> convexHullXZ(std::vector<glm::vec3> pts) {
+    if (pts.size() <= 3) return pts;
+    std::sort(pts.begin(), pts.end(), [](const glm::vec3& a, const glm::vec3& b){
+        if (a.x != b.x) return a.x < b.x;
+        return a.z < b.z;
+    });
+    auto cross2D = [](const glm::vec3& O, const glm::vec3& A, const glm::vec3& B){
+        return (A.x - O.x)*(B.z - O.z) - (A.z - O.z)*(B.x - O.x);
+    };
+    std::vector<glm::vec3> H; H.reserve(pts.size()*2);
+    for (const auto& p : pts){
+        while (H.size() >= 2 && cross2D(H[H.size()-2], H.back(), p) <= 0.f) H.pop_back();
+        H.push_back(p);
+    }
+    size_t t = H.size()+1;
+    for (int i=(int)pts.size()-2; i>=0; --i){
+        const auto& p = pts[i];
+        while (H.size() >= t && cross2D(H[H.size()-2], H.back(), p) <= 0.f) H.pop_back();
+        H.push_back(p);
+    }
+    H.pop_back();
+    return H;
 }
