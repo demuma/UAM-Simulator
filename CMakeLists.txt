@@ -11,10 +11,7 @@ endif()
 
 # Set the SFML_DIR to the path containing SFMLConfig.cmake
 set(SFML_DIR "${HOMEBREW_PREFIX}/sfml@3/lib/cmake/SFML")
-<<<<<<< HEAD
 set(GLEW_DIR "${HOMEBREW_PREFIX}/glew/lib/cmake/GL")
-=======
->>>>>>> 5386a9f (- updated simulator)
 
 find_package(SFML COMPONENTS Graphics Window System REQUIRED)
 # find_package(SFML 2.5 COMPONENTS graphics window system REQUIRED)
