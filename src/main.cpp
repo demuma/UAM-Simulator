@@ -23,9 +23,137 @@
 #include <string>
 #include <vector>
 
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "tiny_obj_loader.h"
+
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+// ===================== Mesh / OBJ =====================
+struct Vertex {
+    glm::vec3 pos{};
+    glm::vec3 normal{0.f, 1.f, 0.f};
+};
+
+struct Mesh {
+    GLuint vao = 0;
+    GLuint vbo = 0;
+    size_t vertexCount = 0;
+
+    bool valid() const { return vao != 0 && vbo != 0 && vertexCount > 0; }
+
+    void destroy() {
+        if (vao) glDeleteVertexArrays(1, &vao);
+        if (vbo) glDeleteBuffers(1, &vbo);
+        vao = 0; vbo = 0; vertexCount = 0;
+    }
+};
+
+static Mesh loadObjMesh(const std::string& path, float scale) {
+    Mesh mesh;
+
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warn, err;
+
+    std::filesystem::path p(path);
+    std::string baseDir = p.parent_path().string();
+    if (!baseDir.empty()) baseDir += "/";
+
+    bool ok = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
+                               path.c_str(), baseDir.c_str(), true);
+    if (!warn.empty()) std::cerr << "OBJ warn: " << warn << "\n";
+    if (!err.empty())  std::cerr << "OBJ err: " << err << "\n";
+    if (!ok) return mesh;
+
+    std::vector<Vertex> vertices;
+    size_t totalIdx = 0;
+    for (const auto& s : shapes) totalIdx += s.mesh.indices.size();
+    vertices.reserve(totalIdx);
+
+    for (const auto& shape : shapes) {
+        for (const auto& idx : shape.mesh.indices) {
+            Vertex v{};
+            if (idx.vertex_index >= 0) {
+                const size_t vi = static_cast<size_t>(idx.vertex_index) * 3;
+                v.pos = glm::vec3(attrib.vertices[vi + 0],
+                                  attrib.vertices[vi + 1],
+                                  attrib.vertices[vi + 2]) * scale;
+            }
+            if (idx.normal_index >= 0) {
+                const size_t ni = static_cast<size_t>(idx.normal_index) * 3;
+                v.normal = glm::normalize(glm::vec3(attrib.normals[ni + 0],
+                                                    attrib.normals[ni + 1],
+                                                    attrib.normals[ni + 2]));
+            }
+            vertices.push_back(v);
+        }
+    }
+
+    if (vertices.empty()) return mesh;
+
+    glGenVertexArrays(1, &mesh.vao);
+    glBindVertexArray(mesh.vao);
+
+    glGenBuffers(1, &mesh.vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(Vertex), vertices.data(), GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal));
+    glEnableVertexAttribArray(1);
+
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    mesh.vertexCount = vertices.size();
+    return mesh;
+}
+
+static void drawMesh(const Mesh& mesh, GLuint shaderProgram, const glm::mat4& model, const glm::vec3& color) {
+    if (!mesh.valid()) return;
+
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
+    GLint colorLoc = glGetUniformLocation(shaderProgram, "uObjectColor");
+    if (colorLoc != -1) glUniform3fv(colorLoc, 1, glm::value_ptr(color));
+
+    glBindVertexArray(mesh.vao);
+    glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(mesh.vertexCount));
+    glBindVertexArray(0);
+}
+
+struct DroneModel {
+    Mesh body;
+    Mesh propFL;
+    Mesh propFR;
+    Mesh propRL;
+    Mesh propRR;
+    bool loaded = false;
+
+    void destroy() {
+        body.destroy();
+        propFL.destroy();
+        propFR.destroy();
+        propRL.destroy();
+        propRR.destroy();
+        loaded = false;
+    }
+};
+
+static DroneModel loadDroneModel(const std::string& dir, float scale) {
+    DroneModel dm;
+    dm.body  = loadObjMesh(dir + "/body.obj", scale);
+    dm.propFL = loadObjMesh(dir + "/prop_FL.obj", scale);
+    dm.propFR = loadObjMesh(dir + "/prop_FR.obj", scale);
+    dm.propRL = loadObjMesh(dir + "/prop_RL.obj", scale);
+    dm.propRR = loadObjMesh(dir + "/prop_RR.obj", scale);
+    dm.loaded = dm.body.valid() && dm.propFL.valid() && dm.propFR.valid() && dm.propRL.valid() && dm.propRR.valid();
+    if (!dm.loaded) std::cerr << "Drone model incomplete. Falling back to cube.\n";
+    return dm;
+}
 
 // ===================== Math / Pose =====================
 struct Pose {
@@ -188,6 +316,49 @@ static inline void drawDroneBox(const Pose& p, const glm::vec3& scale, GLuint sh
     glBindVertexArray(vao);
     glDrawArrays(GL_TRIANGLES, 0, 36);
     glBindVertexArray(0);
+}
+
+// Draw drone from OBJ meshes (body + props)
+static inline void drawDroneModel(const Drone& d, const DroneModel& model, float propAngle, GLuint shaderProgram) {
+    if (!model.loaded) return;
+
+    glm::mat4 base(1.f);
+    base = glm::translate(base, d.p.pos);
+    base = glm::rotate(base, glm::radians(-d.p.yaw), glm::vec3(0, 1, 0));
+    base = glm::rotate(base, glm::radians(d.p.pitch), glm::vec3(1, 0, 0));
+
+    // Model orientation fix: flip forward, then yaw +90.
+    const float modelFlipDeg = 180.0f;
+    const float modelYawFixDeg = 90.0f;
+    glm::mat4 modelFix = glm::rotate(glm::mat4(1.f), glm::radians(modelFlipDeg), glm::vec3(0, 1, 0));
+    modelFix = glm::rotate(modelFix, glm::radians(modelYawFixDeg), glm::vec3(0, 1, 0));
+
+    // Body-only fixes
+    const float bodyRollFixDeg = 270.0f;
+    const float bodyYawFixDeg = 270.0f;
+    glm::mat4 bodyFix = glm::rotate(glm::mat4(1.f), glm::radians(bodyYawFixDeg), glm::vec3(0, 1, 0));
+    bodyFix = glm::rotate(bodyFix, glm::radians(bodyRollFixDeg), glm::vec3(1, 0, 0));
+
+    // Prop offsets (diagonal distance 600 mm -> half side = 0.212132 m)
+    const float propHalf = 0.212132f;
+    const float propLift = 0.06f;
+    const glm::vec3 offFL{ +propHalf, propLift, -propHalf };
+    const glm::vec3 offFR{ +propHalf, propLift, +propHalf };
+    const glm::vec3 offRL{ -propHalf, propLift, -propHalf };
+    const glm::vec3 offRR{ -propHalf, propLift, +propHalf };
+
+    const glm::vec3 bodyColor(0.2f, 0.2f, 0.2f);
+    const glm::vec3 propColor(0.1f, 0.1f, 0.1f);
+
+    drawMesh(model.body, shaderProgram, base * modelFix * bodyFix, bodyColor);
+
+    glm::mat4 rotCW  = glm::rotate(glm::mat4(1.f), propAngle, glm::vec3(0, 1, 0));
+    glm::mat4 rotCCW = glm::rotate(glm::mat4(1.f), -propAngle, glm::vec3(0, 1, 0));
+
+    drawMesh(model.propFL, shaderProgram, base * modelFix * glm::translate(glm::mat4(1.f), offFL) * rotCW, propColor);
+    drawMesh(model.propRR, shaderProgram, base * modelFix * glm::translate(glm::mat4(1.f), offRR) * rotCW, propColor);
+    drawMesh(model.propFR, shaderProgram, base * modelFix * glm::translate(glm::mat4(1.f), offFR) * rotCCW, propColor);
+    drawMesh(model.propRL, shaderProgram, base * modelFix * glm::translate(glm::mat4(1.f), offRL) * rotCCW, propColor);
 }
 
 void drawDroneProjectedShadow(const Drone& drone, const glm::vec3& lightPos, GLuint shadowShader, GLuint cubeVAO, float groundY = 0.0f) {
@@ -1214,11 +1385,17 @@ static std::vector<AABB> buildWorldAABBs(const std::vector<std::unique_ptr<Objec
 // Render all cubes (objects + drone) with object shader
 static void renderSceneCubes(GLuint shader, GLuint cubeVAO,
                              const std::vector<std::unique_ptr<Object3D>>& objects,
-                             const Drone& drone) {
+                             const Drone& drone,
+                             const DroneModel* droneModel,
+                             float propAngle) {
     for (const auto& object : objects) object->draw(shader, cubeVAO);
 
     // Drone
-    drawDroneBox(drone.p, drone.bodyScale, shader, cubeVAO);
+    if (droneModel && droneModel->loaded) {
+        drawDroneModel(drone, *droneModel, propAngle, shader);
+    } else {
+        drawDroneBox(drone.p, drone.bodyScale, shader, cubeVAO);
+    }
 }
 
 static void renderGridLines(GLuint shader, GLuint gridVAO, int gridVertexCount,
@@ -1314,7 +1491,9 @@ static void shadowPass(const ShadowMap& sm, GLuint shadowShader,
                        const glm::mat4& lightSpace,
                        GLuint cubeVAO,
                        const std::vector<std::unique_ptr<Object3D>>& objects,
-                       const Drone& drone) {
+                       const Drone& drone,
+                       const DroneModel* droneModel,
+                       float propAngle) {
     sm.bindForWrite();
     glUseProgram(shadowShader);
     glUniformMatrix4fv(glGetUniformLocation(shadowShader, "uLightSpaceMatrix"), 1, GL_FALSE, glm::value_ptr(lightSpace));
@@ -1322,8 +1501,7 @@ static void shadowPass(const ShadowMap& sm, GLuint shadowShader,
     // Draw objects using the same VAO; shader uses uModel only
     // Reuse the same routine which sets uModel for each object
     // but bind shadow shader instead of object shader.
-    for (const auto& obj : objects) obj->draw(shadowShader, cubeVAO);
-    drawDroneBox(drone.p, drone.bodyScale, shadowShader, cubeVAO);
+    renderSceneCubes(shadowShader, cubeVAO, objects, drone, droneModel, propAngle);
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
@@ -1334,7 +1512,9 @@ static void mainPass(GLuint objectShader, GLuint cubeVAO,
                      const glm::mat4& lightSpace, const glm::vec3& lightPos,
                      const ShadowMap& sm,
                      const std::vector<std::unique_ptr<Object3D>>& objects,
-                     const Drone& drone) {
+                     const Drone& drone,
+                     const DroneModel* droneModel,
+                     float propAngle) {
     // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST);
 
@@ -1346,7 +1526,7 @@ static void mainPass(GLuint objectShader, GLuint cubeVAO,
 
     sm.bindForRead(objectShader, 0);
 
-    renderSceneCubes(objectShader, cubeVAO, objects, drone);
+    renderSceneCubes(objectShader, cubeVAO, objects, drone, droneModel, propAngle);
 
     glUseProgram(0);
     // glDisable(GL_DEPTH_TEST);
@@ -1427,6 +1607,9 @@ int main() {
 
     auto sensorCfg = loadSensorConfig("sensors.yaml");
 
+    const float modelScale = 0.001f; // mm -> m
+    DroneModel droneModel = loadDroneModel("model", modelScale);
+
     CameraFBO droneCamFbo;
     droneCamFbo.init(sensorCfg.camera.width, sensorCfg.camera.height);
     
@@ -1457,6 +1640,9 @@ int main() {
 
     // ---- Drone & sensors
     Drone drone; drone.p.yaw = -90.f;
+
+    float propAngle = 0.0f;
+    const float propSpeed = glm::radians(1800.0f); // deg/s
 
     bool enableLidar = false;
     bool enableRadar = false;
@@ -1622,7 +1808,7 @@ int main() {
 
         // ---- Pass 1: Shadow depth
         if (enableShadows) {
-            shadowPass(shadow, shadowShader, lightSpace, cubeVAO, objects, drone);
+            shadowPass(shadow, shadowShader, lightSpace, cubeVAO, objects, drone, &droneModel, propAngle);
         }
 
         // ---- Pass 2: Grid + scene
@@ -1634,7 +1820,7 @@ int main() {
         renderGround(gridShader, groundVAO, projection, view, lightSpace, lightPos, shadow);
         
         // Opaque scene with shadow map
-        mainPass(objectShader, cubeVAO, projection, view, lightSpace, lightPos, shadow, objects, drone);
+        mainPass(objectShader, cubeVAO, projection, view, lightSpace, lightPos, shadow, objects, drone, &droneModel, propAngle);
         
         renderGridLines(pointLineShaderProgram, gridVAO, gridVertexCount, projection, view);
         // renderGrid(gridShader, gridVAO, gridVertexCount, projection, view, lightSpace, lightPos, shadow);
@@ -1656,7 +1842,7 @@ int main() {
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
             renderGround(gridShader, groundVAO, camProj, camView, lightSpace, lightPos, shadow);
-            mainPass(objectShader, cubeVAO, camProj, camView, lightSpace, lightPos, shadow, objects, drone);
+            mainPass(objectShader, cubeVAO, camProj, camView, lightSpace, lightPos, shadow, objects, drone, &droneModel, propAngle);
             renderGridLines(pointLineShaderProgram, gridVAO, gridVertexCount, camProj, camView);
 
             droneCamFbo.unbind(window.getSize().x, window.getSize().y);
@@ -1741,6 +1927,10 @@ int main() {
 
         window.display();
 
+        // ---- Prop animation
+        propAngle += propSpeed * dtSmooth;
+        if (propAngle > 2.0f * M_PI) propAngle -= 2.0f * M_PI;
+
         // ---- FPS
         frameCount++;
         if (fpsCounter.getElapsedTime().asSeconds() >= 1.0f) {
@@ -1775,6 +1965,8 @@ int main() {
     glDeleteFramebuffers(1, &droneCamFbo.fbo);
     glDeleteTextures(1, &droneCamFbo.colorTex);
     glDeleteRenderbuffers(1, &droneCamFbo.depthRbo);
+
+    droneModel.destroy();
 
     std::cout << "Exiting successfully!\n";
     return 0;
