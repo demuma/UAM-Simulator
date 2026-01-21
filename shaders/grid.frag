@@ -31,7 +31,7 @@
 //     // 1. Position des Fragments im Light Space berechnen und auf [0, 1] normalisieren
 //     vec3 projCoords = vLightSpacePos.xyz / vLightSpacePos.w;
 //     projCoords = projCoords * 0.5 + 0.5;
-    
+//     
 //     // 2. Fragment außerhalb des Licht-Frustums rendert keinen Schatten
 //     // Da wir nur den Boden zeichnen, ist dies weniger kritisch, aber gut zu behalten.
 //     if(projCoords.z > 1.0) return 0.0;
@@ -41,16 +41,16 @@
 
 //     // 4. Aktuelle Fragmenttiefe
 //     float currentDepth = projCoords.z;
-    
+//     
 //     // 5. Biasing (Schattenakne vermeiden)
 //     // Das Gitter hat keine Normalen. Wir nehmen eine feste Normalen (0, 1, 0) an,
 //     // da es auf der XZ-Ebene liegt, und simulieren den Normalen-Bias.
 //     // lightDir muss in diesem Shader *nicht* berechnet werden, wir verwenden einen konstanten Bias.
-    
+//     
 //     // float bias = max(0.05 * (1.0 - dot(norm, lightDir)), 0.005); // Original
 //     // Da die Normale (0,1,0) ist und lightDir variiert, vereinfachen wir:
 //     float bias = 0.005; // Fester kleiner Bias
-    
+//     
 //     // 6. Schatten-Check (Wir verwenden PCF für weichere Ränder - wie in object.frag)
 //     float shadow = 0.0;
 //     vec2 texelSize = 1.0 / textureSize(uShadowMap, 0);
@@ -63,7 +63,7 @@
 //         }    
 //     }
 //     shadow /= 9.0;
-    
+//     
 //     // Wir invertieren den Wert, um den Schatten-Faktor (0=Schatten, 1=Kein Schatten) zu erhalten
 //     return 1.0 - shadow; 
 // }
@@ -73,7 +73,7 @@
 // {
 //     // Der Schattenfaktor ist 1.0 (voll beleuchtet) oder < 1.0 (im Schatten).
 //     float shadowFactor = calculateShadow();
-    
+//     
 //     // Wir multiplizieren die Gitterfarbe mit einem Schatten-Faktor,
 //     // z.B. 0.3 (volle Dunkelheit) bis 1.0 (volle Beleuchtung).
 //     // Wenn shadowFactor = 0 (voller Schatten), wollen wir 0.3.

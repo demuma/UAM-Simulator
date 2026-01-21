@@ -1,0 +1,27 @@
+lidar:
+  beamsH: 36
+  beamsV: 15
+  fovH_deg: 360.0
+  fovV_deg: 45.0
+  maxRange: 50.0
+  fps: 10.0
+  outputDir: lidar_output
+
+radar:
+  beamsH: 60
+  beamsV: 8
+  fovH_deg: 90.0
+  fovV_deg: 20.0
+  maxRange: 150.0
+  minRange: 2.0
+  snr0: 40.0
+  snrMin: 8.0
+  fps: 10.0
+  outputDir: radar_output
+
+camera:
+  width: 640
+  height: 360
+  fov_deg: 60.0
+  fps: 10.0
+  outputDir: camera_output

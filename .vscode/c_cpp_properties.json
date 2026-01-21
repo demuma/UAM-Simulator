@@ -6,16 +6,12 @@
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/include/**",
                 "${workspaceFolder}/src/**",
-<<<<<<< HEAD
-                "/opt/homebrew/opt/sfml/include**",
+                "/usr/local/include/bsoncxx/v_noabi",
+                "/usr/local/include/mongocxx/v_noabi",
+                "/opt/homebrew/opt/sfml/include",
                 "/opt/homebrew/opt/yaml-cpp/include",
                 "/opt/homebrew/opt/glm/include",
                 "/opt/homebrew/opt/glew/include"
-=======
-                "/opt/homebrew/opt/sfml/include",
-                "/opt/homebrew/opt/yaml-cpp/include",
-                "/opt/homebrew/opt/glm/include"
->>>>>>> 5386a9f (- updated simulator)
             ],
             "defines": [],
             "macFrameworkPath": [

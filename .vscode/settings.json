@@ -1,9 +1,7 @@
 {
+    "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+    "C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
     "files.associations": {
-        "string": "cpp",
-        "cmath": "cpp",
-        "map": "cpp",
-        "vector": "cpp",
-        "iostream": "cpp"
+        "unordered_map": "cpp"
     }
 }

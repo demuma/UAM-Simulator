@@ -10,7 +10,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <chrono>
+#include <cstdint>
+#include <cstring>
+#include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -95,6 +100,48 @@ static GLuint createShaderProgram(const std::string& vertPath, const std::string
 
     if (ok) std::cout << "Shader program loaded: " << vertPath << " | " << fragPath << std::endl;
     return prog;
+}
+
+// Compile + link shader program from in-memory source
+static GLuint createShaderProgramFromSource(const std::string& vertSource, const std::string& fragSource) {
+    if (vertSource.empty() || fragSource.empty()) return 0;
+
+    const char* vsrc = vertSource.c_str();
+    const char* fsrc = fragSource.c_str();
+
+    GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vs, 1, &vsrc, nullptr);
+    glCompileShader(vs);
+    GLint ok = GL_FALSE;
+    glGetShaderiv(vs, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[1024]; glGetShaderInfoLog(vs, 1024, nullptr, log);
+        std::cerr << "Vertex shader compile error:\n" << log << std::endl;
+    }
+
+    GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fs, 1, &fsrc, nullptr);
+    glCompileShader(fs);
+    glGetShaderiv(fs, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[1024]; glGetShaderInfoLog(fs, 1024, nullptr, log);
+        std::cerr << "Fragment shader compile error:\n" << log << std::endl;
+    }
+
+    GLuint prog = glCreateProgram();
+    glAttachShader(prog, vs);
+    glAttachShader(prog, fs);
+    glLinkProgram(prog);
+    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[1024]; glGetProgramInfoLog(prog, 1024, nullptr, log);
+        std::cerr << "Program link error:\n" << log << std::endl;
+    }
+
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+
+    return ok ? prog : 0;
 }
 
 } // namespace glutil
@@ -484,6 +531,31 @@ static void createSensorVAO(GLuint& vao, GLuint& vbo) {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
 
+static void createScreenQuadVAO(GLuint& vao, GLuint& vbo) {
+    float quadVertices[] = {
+        // positions   // texcoords
+        -1.0f, -1.0f,   0.0f, 0.0f,
+         1.0f, -1.0f,   1.0f, 0.0f,
+         1.0f,  1.0f,   1.0f, 1.0f,
+        -1.0f,  1.0f,   0.0f, 1.0f
+    };
+
+    glGenVertexArrays(1, &vao);
+    glBindVertexArray(vao);
+
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
 // ===================== Simple light/geometry helpers =====================
 static inline bool projectPointToGround(const glm::vec3& L, const glm::vec3& P, float yPlane, glm::vec3& out) {
     glm::vec3 dir = P - L;
@@ -519,6 +591,76 @@ static inline bool rayAABB(const glm::vec3& ro, const glm::vec3& rd, const AABB&
 }
 
 struct Hit3D { bool ok; float range; glm::vec3 point; int objId; glm::vec3 dir; };
+static inline void writeLidarFrameYaml(const std::string& outputDir,
+                                       int frameId,
+                                       const std::vector<Hit3D>& hits,
+                                       int beamsH, int beamsV,
+                                       float fovH_deg, float fovV_deg) {
+    if (hits.empty()) return;
+
+    std::error_code ec;
+    std::filesystem::create_directories(outputDir, ec);
+    if (ec) {
+        std::cerr << "LiDAR export: could not create directory '" << outputDir
+                  << "' (" << ec.message() << ")\n";
+        return;
+    }
+
+    std::ostringstream filename;
+    filename << outputDir << "/lidar_frame_" << std::setw(6) << std::setfill('0') << frameId << ".yaml";
+    std::ofstream out(filename.str());
+    if (!out.is_open()) {
+        std::cerr << "LiDAR export: could not open file " << filename.str() << "\n";
+        return;
+    }
+
+    auto now = std::chrono::system_clock::now();
+    std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+    std::tm tm{};
+#if defined(_WIN32)
+    localtime_s(&tm, &now_c);
+#else
+    localtime_r(&now_c, &tm);
+#endif
+    std::ostringstream ts;
+     ts << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S")
+         << '.' << std::setw(3) << std::setfill('0') << ms.count();
+
+    const auto hitCount = std::count_if(hits.begin(), hits.end(), [](const Hit3D& h){ return h.ok; });
+
+    out << "timestamp: " << ts.str() << "\n";
+    out << "frame_id: " << frameId << "\n";
+    out << "hit_count: " << hitCount << "\n";
+    out << "miss_count: " << (hits.size() - hitCount) << "\n";
+    out << "beams_h: " << beamsH << "\n";
+    out << "beams_v: " << beamsV << "\n";
+    out << "fov_h_deg: " << fovH_deg << "\n";
+    out << "fov_v_deg: " << fovV_deg << "\n";
+    out << "beams:\n";
+
+    out << std::fixed << std::setprecision(4);
+
+    size_t idx = 0;
+    const float denomV = static_cast<float>(std::max(1, beamsV - 1));
+    const float denomH = static_cast<float>(std::max(1, beamsH - 1));
+    for (int j = 0; j < beamsV; ++j) {
+        float v = ((j / denomV) - 0.5f) * glm::radians(fovV_deg);
+        for (int i = 0; i < beamsH; ++i) {
+            float h = ((i / denomH) - 0.5f) * glm::radians(fovH_deg);
+            const auto& hit = hits[idx++];
+
+            out << "  - index: " << (idx - 1) << "\n";
+            out << "    h_index: " << i << "\n";
+            out << "    v_index: " << j << "\n";
+            out << "    azimuth_deg: " << glm::degrees(h) << "\n";
+            out << "    elevation_deg: " << glm::degrees(v) << "\n";
+            out << "    distance: " << hit.range << "\n";
+            out << "    hit: " << (hit.ok ? "true" : "false") << "\n";
+            out << "    id: " << hit.objId << "\n";
+        }
+    }
+}
 static inline std::vector<Hit3D> simulateLidar3D(const Pose& p,
                                                  const std::vector<AABB>& world,
                                                  int beamsH, int beamsV,
@@ -559,6 +701,77 @@ struct RadarParams {
     float snr0 = 40.f, snrMin = 8.f;
 };
 struct RadarDet { bool ok; float range, vr, az, el; glm::vec3 point; int objId; };
+
+static inline void writeRadarFrameYaml(const std::string& outputDir,
+                                       int frameId,
+                                       const std::vector<RadarDet>& dets,
+                                       const RadarParams& R) {
+    if (dets.empty()) return;
+
+    std::error_code ec;
+    std::filesystem::create_directories(outputDir, ec);
+    if (ec) {
+        std::cerr << "Radar export: could not create directory '" << outputDir
+                  << "' (" << ec.message() << ")\n";
+        return;
+    }
+
+    std::ostringstream filename;
+    filename << outputDir << "/radar_frame_" << std::setw(6) << std::setfill('0') << frameId << ".yaml";
+    std::ofstream out(filename.str());
+    if (!out.is_open()) {
+        std::cerr << "Radar export: could not open file " << filename.str() << "\n";
+        return;
+    }
+
+    auto now = std::chrono::system_clock::now();
+    std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+    std::tm tm{};
+#if defined(_WIN32)
+    localtime_s(&tm, &now_c);
+#else
+    localtime_r(&now_c, &tm);
+#endif
+    std::ostringstream ts;
+    ts << std::put_time(&tm, "%Y-%m-%dT%H:%M:%S")
+       << '.' << std::setw(3) << std::setfill('0') << ms.count();
+
+    const auto hitCount = std::count_if(dets.begin(), dets.end(), [](const RadarDet& d){ return d.ok; });
+
+    out << "timestamp: " << ts.str() << "\n";
+    out << "frame_id: " << frameId << "\n";
+    out << "hit_count: " << hitCount << "\n";
+    out << "miss_count: " << (dets.size() - hitCount) << "\n";
+    out << "beams_h: " << R.beamsH << "\n";
+    out << "beams_v: " << R.beamsV << "\n";
+    out << "fov_h_deg: " << R.fovH << "\n";
+    out << "fov_v_deg: " << R.fovV << "\n";
+    out << "max_range: " << R.maxR << "\n";
+    out << "min_range: " << R.minR << "\n";
+    out << "snr0: " << R.snr0 << "\n";
+    out << "snr_min: " << R.snrMin << "\n";
+    out << "detections:\n";
+
+    out << std::fixed << std::setprecision(4);
+
+    size_t idx = 0;
+    for (int v = 0; v < R.beamsV; ++v) {
+        for (int h = 0; h < R.beamsH; ++h) {
+            const auto& det = dets[idx++];
+
+            out << "  - index: " << (idx - 1) << "\n";
+            out << "    h_index: " << h << "\n";
+            out << "    v_index: " << v << "\n";
+            out << "    azimuth_deg: " << glm::degrees(det.az) << "\n";
+            out << "    elevation_deg: " << glm::degrees(det.el) << "\n";
+            out << "    range: " << det.range << "\n";
+            out << "    vr: " << det.vr << "\n";
+            out << "    hit: " << (det.ok ? "true" : "false") << "\n";
+            out << "    id: " << det.objId << "\n";
+        }
+    }
+}
 
 static inline std::vector<RadarDet> simulateRadar3D(const Pose& sensorPose,
                                                     const glm::vec3& sensorVel,
@@ -737,6 +950,109 @@ struct ShadowMap {
     }
 };
 
+// ===================== Drone camera (FBO + overlay) =====================
+struct CameraFBO {
+    GLuint fbo = 0;
+    GLuint colorTex = 0;
+    GLuint depthRbo = 0;
+    unsigned w = 640, h = 360;
+
+    void init(unsigned width, unsigned height) {
+        w = width; h = height;
+        glGenFramebuffers(1, &fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+        glGenTextures(1, &colorTex);
+        glBindTexture(GL_TEXTURE_2D, colorTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, colorTex, 0);
+
+        glGenRenderbuffers(1, &depthRbo);
+        glBindRenderbuffer(GL_RENDERBUFFER, depthRbo);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, w, h);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, depthRbo);
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            std::cerr << "ERROR::FRAMEBUFFER:: Camera FBO incomplete\n";
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    void bind() const {
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        glViewport(0, 0, w, h);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glEnable(GL_DEPTH_TEST);
+    }
+
+    void unbind(unsigned windowW, unsigned windowH) const {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, windowW, windowH);
+    }
+};
+
+static void saveCameraFrame(const std::string& outputDir, int frameId, const CameraFBO& camFbo) {
+    std::error_code ec;
+    std::filesystem::create_directories(outputDir, ec);
+    if (ec) {
+        std::cerr << "Camera export: could not create directory '" << outputDir
+                  << "' (" << ec.message() << ")\n";
+        return;
+    }
+
+    std::vector<std::uint8_t> pixels(camFbo.w * camFbo.h * 4);
+    glBindFramebuffer(GL_FRAMEBUFFER, camFbo.fbo);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, camFbo.w, camFbo.h, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    std::vector<std::uint8_t> flipped(camFbo.w * camFbo.h * 4);
+    for (unsigned y = 0; y < camFbo.h; ++y) {
+        const auto srcY = camFbo.h - 1 - y;
+        std::memcpy(&flipped[y * camFbo.w * 4], &pixels[srcY * camFbo.w * 4], camFbo.w * 4);
+    }
+
+    sf::Image image({camFbo.w, camFbo.h}, flipped.data());
+
+    std::ostringstream filename;
+    filename << outputDir << "/camera_frame_" << std::setw(6) << std::setfill('0') << frameId << ".png";
+    if (!image.saveToFile(filename.str())) {
+        std::cerr << "Camera export: could not save file " << filename.str() << "\n";
+    }
+}
+
+static void drawCameraOverlay(GLuint shader, GLuint quadVAO, GLuint texture,
+                              unsigned windowW, unsigned windowH,
+                              unsigned overlayW, unsigned overlayH,
+                              unsigned margin = 16) {
+    if (overlayW == 0 || overlayH == 0) return;
+
+    unsigned x = windowW > (overlayW + margin) ? (windowW - overlayW - margin) : 0;
+    unsigned y = margin;
+
+    glViewport(x, y, overlayW, overlayH);
+    glDisable(GL_DEPTH_TEST);
+
+    glUseProgram(shader);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glUniform1i(glGetUniformLocation(shader, "uTex"), 0);
+
+    glBindVertexArray(quadVAO);
+    glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+    glBindVertexArray(0);
+
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glUseProgram(0);
+
+    glViewport(0, 0, windowW, windowH);
+    glEnable(GL_DEPTH_TEST);
+}
+
 // ===================== Camera state/update =====================
 struct Camera {
     glm::vec3 pos{0.0f, 3.0f, 8.0f};
@@ -801,6 +1117,85 @@ static std::vector<std::unique_ptr<Object3D>> loadObjectsOrDefault(const std::st
         objects.push_back(std::make_unique<Object3D>(o3));
     }
     return objects;
+}
+
+struct LidarConfig {
+    int beamsH = 36;
+    int beamsV = 15;
+    float fovH_deg = 360.f;
+    float fovV_deg = 45.f;
+    float maxRange = 50.f;
+    float fps = 10.0f;
+    std::string outputDir = "lidar_output";
+};
+
+struct RadarConfig {
+    int beamsH = 60;
+    int beamsV = 8;
+    float fovH_deg = 90.f;
+    float fovV_deg = 20.f;
+    float maxRange = 150.f;
+    float minRange = 2.f;
+    float snr0 = 40.f;
+    float snrMin = 8.f;
+    float fps = 10.0f;
+    std::string outputDir = "radar_output";
+};
+
+struct CameraConfig {
+    unsigned width = 640;
+    unsigned height = 360;
+    float fov_deg = 60.f;
+    float fps = 10.0f;
+    std::string outputDir = "camera_output";
+};
+
+struct SensorConfig {
+    LidarConfig lidar;
+    RadarConfig radar;
+    CameraConfig camera;
+};
+
+static SensorConfig loadSensorConfig(const std::string& cfgPath) {
+    SensorConfig cfg;
+    try {
+        YAML::Node root = YAML::LoadFile(cfgPath);
+        if (root["lidar"]) {
+            auto n = root["lidar"];
+            if (n["beamsH"]) cfg.lidar.beamsH = n["beamsH"].as<int>();
+            if (n["beamsV"]) cfg.lidar.beamsV = n["beamsV"].as<int>();
+            if (n["fovH_deg"]) cfg.lidar.fovH_deg = n["fovH_deg"].as<float>();
+            if (n["fovV_deg"]) cfg.lidar.fovV_deg = n["fovV_deg"].as<float>();
+            if (n["maxRange"]) cfg.lidar.maxRange = n["maxRange"].as<float>();
+            if (n["fps"]) cfg.lidar.fps = n["fps"].as<float>();
+            if (n["outputDir"]) cfg.lidar.outputDir = n["outputDir"].as<std::string>();
+        }
+        if (root["radar"]) {
+            auto n = root["radar"];
+            if (n["beamsH"]) cfg.radar.beamsH = n["beamsH"].as<int>();
+            if (n["beamsV"]) cfg.radar.beamsV = n["beamsV"].as<int>();
+            if (n["fovH_deg"]) cfg.radar.fovH_deg = n["fovH_deg"].as<float>();
+            if (n["fovV_deg"]) cfg.radar.fovV_deg = n["fovV_deg"].as<float>();
+            if (n["maxRange"]) cfg.radar.maxRange = n["maxRange"].as<float>();
+            if (n["minRange"]) cfg.radar.minRange = n["minRange"].as<float>();
+            if (n["snr0"]) cfg.radar.snr0 = n["snr0"].as<float>();
+            if (n["snrMin"]) cfg.radar.snrMin = n["snrMin"].as<float>();
+            if (n["fps"]) cfg.radar.fps = n["fps"].as<float>();
+            if (n["outputDir"]) cfg.radar.outputDir = n["outputDir"].as<std::string>();
+        }
+        if (root["camera"]) {
+            auto n = root["camera"];
+            if (n["width"]) cfg.camera.width = n["width"].as<unsigned>();
+            if (n["height"]) cfg.camera.height = n["height"].as<unsigned>();
+            if (n["fov_deg"]) cfg.camera.fov_deg = n["fov_deg"].as<float>();
+            if (n["fps"]) cfg.camera.fps = n["fps"].as<float>();
+            if (n["outputDir"]) cfg.camera.outputDir = n["outputDir"].as<std::string>();
+        }
+        std::cout << "Loaded sensor config from " << cfgPath << "\n";
+    } catch (...) {
+        std::cerr << "Error loading " << cfgPath << ", using default sensor settings...\n";
+    }
+    return cfg;
 }
 
 // Build static AABB list for ray tests
@@ -986,11 +1381,33 @@ int main() {
     std::cout << "OpenGL: " << glGetString(GL_VERSION) << " | Renderer: " << glGetString(GL_RENDERER) << "\n";
 
     // ---- Compile shaders
-    GLuint gridShader   = glutil::createShaderProgram("grid.vert", "grid.frag");
-    GLuint objectShader = glutil::createShaderProgram("object.vert", "object.frag");
-    GLuint shadowShader = glutil::createShaderProgram("shadow.vert", "shadow.frag");
-    GLuint pointLineShaderProgram = glutil::createShaderProgram("point_line.vert", "point_line.frag");
+    GLuint gridShader   = glutil::createShaderProgram("shaders/grid.vert", "shaders/grid.frag");
+    GLuint objectShader = glutil::createShaderProgram("shaders/object.vert", "shaders/object.frag");
+    GLuint shadowShader = glutil::createShaderProgram("shaders/shadow.vert", "shaders/shadow.frag");
+    GLuint pointLineShaderProgram = glutil::createShaderProgram("shaders/point_line.vert", "shaders/point_line.frag");
     if (!gridShader || !objectShader || !shadowShader || !pointLineShaderProgram) return -1;
+
+    const std::string quadVertSrc = R"(
+        #version 330 core
+        layout(location = 0) in vec2 aPos;
+        layout(location = 1) in vec2 aTex;
+        out vec2 vTex;
+        void main() {
+            vTex = aTex;
+            gl_Position = vec4(aPos, 0.0, 1.0);
+        }
+    )";
+    const std::string quadFragSrc = R"(
+        #version 330 core
+        in vec2 vTex;
+        out vec4 FragColor;
+        uniform sampler2D uTex;
+        void main() {
+            FragColor = texture(uTex, vTex);
+        }
+    )";
+    GLuint cameraOverlayShader = glutil::createShaderProgramFromSource(quadVertSrc, quadFragSrc);
+    if (!cameraOverlayShader) return -1;
 
     // ---- Create geometry
     GLuint gridVAO = 0, gridVBO = 0; int gridVertexCount = 0;
@@ -1004,6 +1421,15 @@ int main() {
 
     GLuint groundVAO = 0, groundVBO = 0;
     createGroundVAO(groundVAO, groundVBO);
+
+    GLuint quadVAO = 0, quadVBO = 0;
+    createScreenQuadVAO(quadVAO, quadVBO);
+
+    auto sensorCfg = loadSensorConfig("sensors.yaml");
+
+    CameraFBO droneCamFbo;
+    droneCamFbo.init(sensorCfg.camera.width, sensorCfg.camera.height);
+    
 
     // ---- Shadow map
     ShadowMap shadow; shadow.init();
@@ -1035,16 +1461,43 @@ int main() {
     bool enableLidar = false;
     bool enableRadar = false;
     bool enableLightSource = false;
+    bool enableCamera = true;
     RadarParams radarCfg;
     glm::vec3 prevDronePos = drone.p.pos, droneVel{0,0,0};
     bool prevPosValid = false;
 
     // ---- Lidar config
-    const int   beamsH   = 360;
-    const int   beamsV   = 16;
-    const float fovH_deg = 360.f;
-    const float fovV_deg = 45.f;
-    const float lidarMax = 50.f;
+    const int   beamsH   = sensorCfg.lidar.beamsH;
+    const int   beamsV   = sensorCfg.lidar.beamsV;
+    const float fovH_deg = sensorCfg.lidar.fovH_deg;
+    const float fovV_deg = sensorCfg.lidar.fovV_deg;
+    const float lidarMax = sensorCfg.lidar.maxRange;
+    const std::string lidarOutputDir = sensorCfg.lidar.outputDir;
+    int lidarFrameId = 0;
+    const float lidarFps = sensorCfg.lidar.fps;
+    const float lidarPeriod = 1.0f / lidarFps;
+    float lidarWriteAccumulator = 0.0f;
+
+    radarCfg.beamsH = sensorCfg.radar.beamsH;
+    radarCfg.beamsV = sensorCfg.radar.beamsV;
+    radarCfg.fovH = sensorCfg.radar.fovH_deg;
+    radarCfg.fovV = sensorCfg.radar.fovV_deg;
+    radarCfg.maxR = sensorCfg.radar.maxRange;
+    radarCfg.minR = sensorCfg.radar.minRange;
+    radarCfg.snr0 = sensorCfg.radar.snr0;
+    radarCfg.snrMin = sensorCfg.radar.snrMin;
+
+    const std::string radarOutputDir = sensorCfg.radar.outputDir;
+    int radarFrameId = 0;
+    const float radarFps = sensorCfg.radar.fps;
+    const float radarPeriod = 1.0f / radarFps;
+    float radarWriteAccumulator = 0.0f;
+
+    const std::string cameraOutputDir = sensorCfg.camera.outputDir;
+    int cameraFrameId = 0;
+    const float cameraFps = sensorCfg.camera.fps;
+    const float cameraPeriod = 1.0f / cameraFps;
+    float cameraWriteAccumulator = 0.0f;
 
     // ---- Timing
     sf::Clock deltaClock, fpsCounter;
@@ -1077,6 +1530,9 @@ int main() {
         } else if (keyPressed.scancode == sc::R) {
             enableRadar = !enableRadar;
             std::cout << "Radar: " << (enableRadar ? "ON" : "OFF") << "\n";
+        } else if (keyPressed.scancode == sc::P) {
+            enableCamera = !enableCamera;
+            std::cout << "Camera: " << (enableCamera ? "ON" : "OFF") << "\n";
         }
 
         // Light control (arrow keys + PageUp/Down)
@@ -1106,7 +1562,7 @@ int main() {
 
     std::cout << "\n=== Controls ===\n"
               << "WASD: move, Q/E: yaw (drone), C/V: up/down\n"
-              << "F: follow cam, M: mouse look (free cam), L: LiDAR, R: RADAR, H: shadows, ESC: quit\n"
+              << "F: follow cam, M: mouse look (free cam), L: LiDAR, R: RADAR, P: camera, H: shadows, ESC: quit\n"
               << "Arrows/PgUp/PgDn: move light\n";
 
     // ---- Main loop
@@ -1187,9 +1643,53 @@ int main() {
             drawLightSource(lightPos, pointLineShaderProgram, cubeVAO, view, projection);
         }
 
+        // ---- Drone camera: render to texture
+        if (enableCamera) {
+            glm::vec3 camPos = drone.p.pos + glm::vec3(0.0f, 0.3f, 0.0f);
+            glm::vec3 camFwd = forwardFrom(drone.p);
+            glm::mat4 camView = glm::lookAt(camPos, camPos + camFwd, glm::vec3(0.0f, 1.0f, 0.0f));
+            float camAspect = static_cast<float>(droneCamFbo.w) / static_cast<float>(droneCamFbo.h);
+            glm::mat4 camProj = glm::perspective(glm::radians(sensorCfg.camera.fov_deg), camAspect, 0.2f, 80.0f);
+
+            droneCamFbo.bind();
+            glClearColor(0.8f, 0.9f, 1.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            renderGround(gridShader, groundVAO, camProj, camView, lightSpace, lightPos, shadow);
+            mainPass(objectShader, cubeVAO, camProj, camView, lightSpace, lightPos, shadow, objects, drone);
+            renderGridLines(pointLineShaderProgram, gridVAO, gridVertexCount, camProj, camView);
+
+            droneCamFbo.unbind(window.getSize().x, window.getSize().y);
+
+            cameraWriteAccumulator += dtSmooth;
+            while (cameraWriteAccumulator >= cameraPeriod) {
+                saveCameraFrame(cameraOutputDir, cameraFrameId++, droneCamFbo);
+                cameraWriteAccumulator -= cameraPeriod;
+            }
+
+            unsigned windowW = window.getSize().x;
+            unsigned windowH = window.getSize().y;
+            unsigned overlayW = windowW / 4;
+            unsigned overlayH = static_cast<unsigned>(overlayW * (static_cast<float>(droneCamFbo.h) / droneCamFbo.w));
+            if (overlayH > windowH / 3) {
+                overlayH = windowH / 3;
+                overlayW = static_cast<unsigned>(overlayH * (static_cast<float>(droneCamFbo.w) / droneCamFbo.h));
+            }
+
+            drawCameraOverlay(cameraOverlayShader, quadVAO, droneCamFbo.colorTex,
+                              windowW, windowH, overlayW, overlayH, 16);
+        } else {
+            cameraWriteAccumulator = 0.0f;
+        }
+
         // ---- Sensors (debug render)
         auto hits = simulateLidar3D(drone.p, worldAABBs, beamsH, beamsV, fovH_deg, fovV_deg, lidarMax);
         if (enableLidar) {
+            lidarWriteAccumulator += dtSmooth;
+            while (lidarWriteAccumulator >= lidarPeriod) {
+                writeLidarFrameYaml(lidarOutputDir, lidarFrameId++, hits, beamsH, beamsV, fovH_deg, fovV_deg);
+                lidarWriteAccumulator -= lidarPeriod;
+            }
             // LiDAR Punkte (Point Cloud)
             std::vector<glm::vec3> lidarPoints;
             std::vector<glm::vec3> lidarBeams;
@@ -1206,10 +1706,17 @@ int main() {
             drawPoints(lidarPoints, glm::vec3(1.0f, 0.0f, 0.0f), 3.0f, pointLineShaderProgram, sensorVAO, sensorVBO, view, projection);
             // Linien zeichnen 
             drawLines(lidarBeams, glm::vec3(1.0f, 0.0f, 0.0f), 1.0f, pointLineShaderProgram, sensorVAO, sensorVBO, view, projection);
+        } else {
+            lidarWriteAccumulator = 0.0f;
         }
 
         auto radarDets = simulateRadar3D(drone.p, droneVel, worldAABBs, radarCfg);
         if (enableRadar) {
+            radarWriteAccumulator += dtSmooth;
+            while (radarWriteAccumulator >= radarPeriod) {
+                writeRadarFrameYaml(radarOutputDir, radarFrameId++, radarDets, radarCfg);
+                radarWriteAccumulator -= radarPeriod;
+            }
             std::vector<glm::vec3> radarPoints;
             std::vector<glm::vec3> radarBeams;
             
@@ -1228,6 +1735,8 @@ int main() {
             
             // Linien zeichnen (Cyan)
             drawLines(radarBeams, glm::vec3(0.0f, 0.9f, 0.9f), 1.0f, pointLineShaderProgram, sensorVAO, sensorVBO, view, projection);
+        } else {
+            radarWriteAccumulator = 0.0f;
         }
 
         window.display();
@@ -1258,6 +1767,14 @@ int main() {
     glDeleteVertexArrays(1, &sensorVAO);
     glDeleteBuffers(1, &sensorVBO);
     glDeleteProgram(pointLineShaderProgram);
+
+    glDeleteVertexArrays(1, &quadVAO);
+    glDeleteBuffers(1, &quadVBO);
+    glDeleteProgram(cameraOverlayShader);
+
+    glDeleteFramebuffers(1, &droneCamFbo.fbo);
+    glDeleteTextures(1, &droneCamFbo.colorTex);
+    glDeleteRenderbuffers(1, &droneCamFbo.depthRbo);
 
     std::cout << "Exiting successfully!\n";
     return 0;
