@@ -18,8 +18,8 @@ void main()
 {
     gl_Position = uProjection * uView * vec4(aPos, 1.0);
     
-    // Normale im Weltraum weitergeben
-    vNormal = aNormal;
+    // Grid lies on XZ plane; use fixed normal
+    vNormal = vec3(0.0, 1.0, 0.0);
     
     // Position des Vertex im Light-Space
     // Da das Gitter keine Model-Matrix hat (Identity), verwenden wir nur aPos.

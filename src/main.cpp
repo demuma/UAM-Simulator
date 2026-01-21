@@ -537,7 +537,7 @@ public:
 // Create colored grid vertices around origin (XZ plane)
 static std::vector<float> generateGridVertices(int halfSize = 10) {
     std::vector<float> vertices;
-    float lineColor[3] = {0.7f, 0.7f, 0.7f};
+    float lineColor[3] = {0.25f, 0.25f, 0.25f};
     float centerColor[3] = {0.3f, 0.3f, 0.3f};
 
     float yOffset = 0.001f; // Slightly above ground to avoid Z-fighting
@@ -1008,6 +1008,7 @@ static inline void drawLightSource(const glm::vec3& lightPos, GLuint shaderProgr
     
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
     glUniform3f(glGetUniformLocation(shaderProgram, "uColor"), 1.0f, 1.0f, 0.0f); // Gelbe Lichtfarbe
+    glUniform1i(glGetUniformLocation(shaderProgram, "uIsPoint"), 0);
 
     glBindVertexArray(vao);
     glDrawArrays(GL_TRIANGLES, 0, 36);
@@ -1017,7 +1018,10 @@ static inline void drawLightSource(const glm::vec3& lightPos, GLuint shaderProgr
 
 // ===================== Draw lines and points helpers =====================
 // Helfer zum Zeichnen von Punkten (LiDAR, Radar)
-static void drawPoints(const std::vector<glm::vec3>& points, const glm::vec3& color, float pointSize, GLuint shaderProgram, GLuint vao, GLuint vbo, const glm::mat4& view, const glm::mat4& projection) {
+static void drawPoints(const std::vector<glm::vec3>& points, const glm::vec3& color, float pointSize,
+                       GLuint shaderProgram, GLuint vao, GLuint vbo,
+                       const glm::mat4& view, const glm::mat4& projection,
+                       bool depthTest) {
     if (points.empty()) return;
 
     // 1. Daten in VBO übertragen (dynamisches Update)
@@ -1034,14 +1038,19 @@ static void drawPoints(const std::vector<glm::vec3>& points, const glm::vec3& co
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f))); // Identitätsmatrix
     glUniform3fv(glGetUniformLocation(shaderProgram, "uColor"), 1, glm::value_ptr(color));
     glUniform1f(glGetUniformLocation(shaderProgram, "uPointSize"), pointSize);
+    glUniform1i(glGetUniformLocation(shaderProgram, "uIsPoint"), 1);
 
     // 4. Zeichnen
-    glEnable(GL_PROGRAM_POINT_SIZE); 
-    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_PROGRAM_POINT_SIZE);
+    if (depthTest) glEnable(GL_DEPTH_TEST);
+    else glDisable(GL_DEPTH_TEST);
     glBindVertexArray(vao);
     glDrawArrays(GL_POINTS, 0, points.size());
     glBindVertexArray(0);
     glDisable(GL_PROGRAM_POINT_SIZE);
+
+    if (depthTest) glEnable(GL_DEPTH_TEST);
+    else glDisable(GL_DEPTH_TEST);
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glUseProgram(0);
@@ -1063,6 +1072,7 @@ static void drawLines(const std::vector<glm::vec3>& vertices, const glm::vec3& c
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uView"), 1, GL_FALSE, glm::value_ptr(view));
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0f))); // Identitätsmatrix
     glUniform3fv(glGetUniformLocation(shaderProgram, "uColor"), 1, glm::value_ptr(color));
+    glUniform1i(glGetUniformLocation(shaderProgram, "uIsPoint"), 0);
     
     glLineWidth(lineWidth);
 
@@ -1082,7 +1092,7 @@ static void drawLines(const std::vector<glm::vec3>& vertices, const glm::vec3& c
 struct ShadowMap {
     GLuint fbo = 0;
     GLuint depthTex = 0;
-    unsigned w = 4096, h = 4096;
+    unsigned w = 8192, h = 8192;
 
     void init() {
         glGenFramebuffers(1, &fbo);
@@ -1220,6 +1230,37 @@ static void drawCameraOverlay(GLuint shader, GLuint quadVAO, GLuint texture,
     glBindTexture(GL_TEXTURE_2D, 0);
     glUseProgram(0);
 
+    glViewport(0, 0, windowW, windowH);
+    glEnable(GL_DEPTH_TEST);
+}
+
+static void drawCameraFrame(GLuint shader, GLuint quadVAO,
+                            unsigned windowW, unsigned windowH,
+                            unsigned overlayW, unsigned overlayH,
+                            unsigned border = 6,
+                            unsigned margin = 16,
+                            const glm::vec3& color = glm::vec3(0.0f, 0.0f, 0.0f)) {
+    if (overlayW == 0 || overlayH == 0) return;
+
+    unsigned frameW = overlayW + border * 2;
+    unsigned frameH = overlayH + border * 2;
+
+    unsigned x = windowW > (overlayW + margin)
+                   ? (windowW - overlayW - margin - border)
+                   : 0;
+    unsigned y = margin > border ? (margin - border) : 0;
+
+    glViewport(x, y, frameW, frameH);
+    glDisable(GL_DEPTH_TEST);
+
+    glUseProgram(shader);
+    glUniform3fv(glGetUniformLocation(shader, "uColor"), 1, glm::value_ptr(color));
+
+    glBindVertexArray(quadVAO);
+    glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+    glBindVertexArray(0);
+
+    glUseProgram(0);
     glViewport(0, 0, windowW, windowH);
     glEnable(GL_DEPTH_TEST);
 }
@@ -1403,9 +1444,12 @@ static void renderGridLines(GLuint shader, GLuint gridVAO, int gridVertexCount,
 
     // WICHTIG: Tiefentest deaktivieren, damit die Linien ÜBER der Bodenfläche gezeichnet werden,
     // ohne Z-Fighting, oder verwenden Sie einen Polygon-Offset.
-    // glDisable(GL_DEPTH_TEST); 
+    glEnable(GL_DEPTH_TEST);
     glEnable(GL_POLYGON_OFFSET_LINE);
-    // glPolygonOffset(-2.0f, -2.0f);
+    glPolygonOffset(-2.0f, -2.0f);
+    glDepthMask(GL_FALSE);
+    glDepthFunc(GL_LEQUAL);
+    glLineWidth(1.0f);
     
     glUseProgram(shader);
     glUniformMatrix4fv(glGetUniformLocation(shader, "uProjection"), 1, GL_FALSE, glm::value_ptr(proj));
@@ -1414,6 +1458,7 @@ static void renderGridLines(GLuint shader, GLuint gridVAO, int gridVertexCount,
     // Model-Matrix muss auf Identity gesetzt werden, da die Linien im Weltraum sind.
     glm::mat4 model = glm::mat4(1.0f);
     glUniformMatrix4fv(glGetUniformLocation(shader, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
+    glUniform1i(glGetUniformLocation(shader, "uIsPoint"), 0);
 
     // Setzen Sie eine Gitterfarbe (heller als der Boden)
     glm::vec3 lineColor = glm::vec3(0.5f, 0.5f, 0.5f); 
@@ -1423,15 +1468,18 @@ static void renderGridLines(GLuint shader, GLuint gridVAO, int gridVertexCount,
     glDrawArrays(GL_LINES, 0, gridVertexCount); // Zeichnet die Linien!
     glBindVertexArray(0);
 
+    glLineWidth(1.0f);
+    glDepthFunc(GL_LESS);
+    glDepthMask(GL_TRUE);
     glDisable(GL_POLYGON_OFFSET_LINE);
-    // glEnable(GL_DEPTH_TEST); // Tiefentest wieder aktivieren
 }
 
 // Render full grid using grid shader + VAO
 static void renderGrid(GLuint shader, GLuint gridVAO, int gridVertexCount,
                        const glm::mat4& proj, const glm::mat4& view,
                        const glm::mat4& lightSpace, const glm::vec3& lightPos,
-                       const ShadowMap& sm) {
+                       const ShadowMap& sm,
+                       const glm::vec3& lineColor) {
     glUseProgram(shader);
     glUniformMatrix4fv(glGetUniformLocation(shader, "uProjection"), 1, GL_FALSE, glm::value_ptr(proj));
     glUniformMatrix4fv(glGetUniformLocation(shader, "uView"), 1, GL_FALSE, glm::value_ptr(view));
@@ -1441,6 +1489,8 @@ static void renderGrid(GLuint shader, GLuint gridVAO, int gridVertexCount,
 
     // Light Space Matrix (needed to calculate fragment position in light space)
     glUniformMatrix4fv(glGetUniformLocation(shader, "uLightSpaceMatrix"), 1, GL_FALSE, glm::value_ptr(lightSpace));
+
+    glUniform3fv(glGetUniformLocation(shader, "uGroundColor"), 1, glm::value_ptr(lineColor));
 
     sm.bindForRead(shader, 0); // Bind shadow map to texture unit 0
 
@@ -1589,6 +1639,17 @@ int main() {
     GLuint cameraOverlayShader = glutil::createShaderProgramFromSource(quadVertSrc, quadFragSrc);
     if (!cameraOverlayShader) return -1;
 
+    const std::string frameFragSrc = R"(
+        #version 330 core
+        out vec4 FragColor;
+        uniform vec3 uColor;
+        void main() {
+            FragColor = vec4(uColor, 1.0);
+        }
+    )";
+    GLuint cameraFrameShader = glutil::createShaderProgramFromSource(quadVertSrc, frameFragSrc);
+    if (!cameraFrameShader) return -1;
+
     // ---- Create geometry
     GLuint gridVAO = 0, gridVBO = 0; int gridVertexCount = 0;
     createGridVAO(gridVAO, gridVBO, gridVertexCount);
@@ -1628,7 +1689,7 @@ int main() {
     auto worldAABBs = buildWorldAABBs(objects);
 
     // ---- Lighting
-    glm::vec3 lightPos(5.0f, 8.0f, 3.0f);
+    glm::vec3 lightPos(5.0f, 30.0f, 3.0f);
     bool enableShadows = true;
 
     // ---- Camera & modes
@@ -1648,6 +1709,8 @@ int main() {
     bool enableRadar = false;
     bool enableLightSource = false;
     bool enableCamera = true;
+    bool showLidarInCam = false;
+    bool showRadarInCam = false;
     RadarParams radarCfg;
     glm::vec3 prevDronePos = drone.p.pos, droneVel{0,0,0};
     bool prevPosValid = false;
@@ -1719,6 +1782,12 @@ int main() {
         } else if (keyPressed.scancode == sc::P) {
             enableCamera = !enableCamera;
             std::cout << "Camera: " << (enableCamera ? "ON" : "OFF") << "\n";
+        } else if (keyPressed.scancode == sc::K) {
+            showLidarInCam = !showLidarInCam;
+            std::cout << "Camera LiDAR points: " << (showLidarInCam ? "ON" : "OFF") << "\n";
+        } else if (keyPressed.scancode == sc::T) {
+            showRadarInCam = !showRadarInCam;
+            std::cout << "Camera RADAR points: " << (showRadarInCam ? "ON" : "OFF") << "\n";
         }
 
         // Light control (arrow keys + PageUp/Down)
@@ -1748,7 +1817,7 @@ int main() {
 
     std::cout << "\n=== Controls ===\n"
               << "WASD: move, Q/E: yaw (drone), C/V: up/down\n"
-              << "F: follow cam, M: mouse look (free cam), L: LiDAR, R: RADAR, P: camera, H: shadows, ESC: quit\n"
+              << "F: follow cam, M: mouse look (free cam), L: LiDAR, R: RADAR, P: camera, K: cam LiDAR, T: cam RADAR, H: shadows, ESC: quit\n"
               << "Arrows/PgUp/PgDn: move light\n";
 
     // ---- Main loop
@@ -1806,6 +1875,25 @@ int main() {
         glm::mat4 lightView = glm::lookAt(lightPos, glm::vec3(0.0f, 0.0f, 0.0f), cam.up);
         glm::mat4 lightSpace = lightProj * lightView;
 
+        // ---- Sensors (compute once per frame)
+        std::vector<Hit3D> hits;
+        std::vector<glm::vec3> lidarPoints;
+        if (enableLidar || showLidarInCam) {
+            hits = simulateLidar3D(drone.p, worldAABBs, beamsH, beamsV, fovH_deg, fovV_deg, lidarMax);
+            for (const auto& hit : hits) {
+                if (hit.ok) lidarPoints.push_back(hit.point);
+            }
+        }
+
+        std::vector<RadarDet> radarDets;
+        std::vector<glm::vec3> radarPoints;
+        if (enableRadar || showRadarInCam) {
+            radarDets = simulateRadar3D(drone.p, droneVel, worldAABBs, radarCfg);
+            for (const auto& det : radarDets) {
+                if (det.ok) radarPoints.push_back(det.point);
+            }
+        }
+
         // ---- Pass 1: Shadow depth
         if (enableShadows) {
             shadowPass(shadow, shadowShader, lightSpace, cubeVAO, objects, drone, &droneModel, propAngle);
@@ -1822,8 +1910,8 @@ int main() {
         // Opaque scene with shadow map
         mainPass(objectShader, cubeVAO, projection, view, lightSpace, lightPos, shadow, objects, drone, &droneModel, propAngle);
         
-        renderGridLines(pointLineShaderProgram, gridVAO, gridVertexCount, projection, view);
-        // renderGrid(gridShader, gridVAO, gridVertexCount, projection, view, lightSpace, lightPos, shadow);
+        renderGrid(gridShader, gridVAO, gridVertexCount, projection, view, lightSpace, lightPos, shadow,
+               glm::vec3(0.5f, 0.5f, 0.5f));
 
         if (enableLightSource) {
             drawLightSource(lightPos, pointLineShaderProgram, cubeVAO, view, projection);
@@ -1843,7 +1931,15 @@ int main() {
 
             renderGround(gridShader, groundVAO, camProj, camView, lightSpace, lightPos, shadow);
             mainPass(objectShader, cubeVAO, camProj, camView, lightSpace, lightPos, shadow, objects, drone, &droneModel, propAngle);
-            renderGridLines(pointLineShaderProgram, gridVAO, gridVertexCount, camProj, camView);
+            renderGrid(gridShader, gridVAO, gridVertexCount, camProj, camView, lightSpace, lightPos, shadow,
+                       glm::vec3(0.5f, 0.5f, 0.5f));
+
+            if (showLidarInCam && !lidarPoints.empty()) {
+                drawPoints(lidarPoints, glm::vec3(1.0f, 0.0f, 0.0f), 3.0f, pointLineShaderProgram, sensorVAO, sensorVBO, camView, camProj, false);
+            }
+            if (showRadarInCam && !radarPoints.empty()) {
+                drawPoints(radarPoints, glm::vec3(0.0f, 1.0f, 0.0f), 3.0f, pointLineShaderProgram, sensorVAO, sensorVBO, camView, camProj, false);
+            }
 
             droneCamFbo.unbind(window.getSize().x, window.getSize().y);
 
@@ -1862,6 +1958,11 @@ int main() {
                 overlayW = static_cast<unsigned>(overlayH * (static_cast<float>(droneCamFbo.w) / droneCamFbo.h));
             }
 
+            const unsigned frameBorder = 6;
+            drawCameraFrame(cameraFrameShader, quadVAO, windowW, windowH,
+                            overlayW, overlayH, frameBorder, 16,
+                            glm::vec3(0.0f, 0.0f, 0.0f));
+
             drawCameraOverlay(cameraOverlayShader, quadVAO, droneCamFbo.colorTex,
                               windowW, windowH, overlayW, overlayH, 16);
         } else {
@@ -1869,58 +1970,28 @@ int main() {
         }
 
         // ---- Sensors (debug render)
-        auto hits = simulateLidar3D(drone.p, worldAABBs, beamsH, beamsV, fovH_deg, fovV_deg, lidarMax);
         if (enableLidar) {
             lidarWriteAccumulator += dtSmooth;
             while (lidarWriteAccumulator >= lidarPeriod) {
                 writeLidarFrameYaml(lidarOutputDir, lidarFrameId++, hits, beamsH, beamsV, fovH_deg, fovV_deg);
                 lidarWriteAccumulator -= lidarPeriod;
             }
-            // LiDAR Punkte (Point Cloud)
-            std::vector<glm::vec3> lidarPoints;
-            std::vector<glm::vec3> lidarBeams;
-            for (const auto& hit : hits) {
-                if (hit.ok) {
-                    lidarPoints.push_back(hit.point);
-                    // Lidar Beams (Linien vom Zentrum zu den Punkten)
-                    lidarBeams.push_back(drone.p.pos);
-                    lidarBeams.push_back(hit.point);
-                }
+            if (!lidarPoints.empty()) {
+                drawPoints(lidarPoints, glm::vec3(1.0f, 0.0f, 0.0f), 3.0f, pointLineShaderProgram, sensorVAO, sensorVBO, view, projection, true);
             }
-            
-            // Punkte zeichnen (rot)
-            drawPoints(lidarPoints, glm::vec3(1.0f, 0.0f, 0.0f), 3.0f, pointLineShaderProgram, sensorVAO, sensorVBO, view, projection);
-            // Linien zeichnen 
-            drawLines(lidarBeams, glm::vec3(1.0f, 0.0f, 0.0f), 1.0f, pointLineShaderProgram, sensorVAO, sensorVBO, view, projection);
         } else {
             lidarWriteAccumulator = 0.0f;
         }
 
-        auto radarDets = simulateRadar3D(drone.p, droneVel, worldAABBs, radarCfg);
         if (enableRadar) {
             radarWriteAccumulator += dtSmooth;
             while (radarWriteAccumulator >= radarPeriod) {
                 writeRadarFrameYaml(radarOutputDir, radarFrameId++, radarDets, radarCfg);
                 radarWriteAccumulator -= radarPeriod;
             }
-            std::vector<glm::vec3> radarPoints;
-            std::vector<glm::vec3> radarBeams;
-            
-            // Fülle die Daten
-            for (const auto& det : radarDets) {
-                if (det.ok) {
-                    radarPoints.push_back(det.point);
-                    radarBeams.push_back(drone.p.pos);
-                    radarBeams.push_back(det.point);
-                }
+            if (!radarPoints.empty()) {
+                drawPoints(radarPoints, glm::vec3(0.0f, 1.0f, 0.0f), 2.0f, pointLineShaderProgram, sensorVAO, sensorVBO, view, projection, true);
             }
-            
-            // Punkte zeichnen (Cyan/Grün - VR-Färbung wurde der Einfachheit halber im Helper auf festes Grün gesetzt)
-            // Hinweis: Für eine dynamische Färbung nach vr müsste ein Shader mit einem zusätzlichen VBO für die Farbe verwendet werden.
-            drawPoints(radarPoints, glm::vec3(0.0f, 1.0f, 0.0f), 2.0f, pointLineShaderProgram, sensorVAO, sensorVBO, view, projection);
-            
-            // Linien zeichnen (Cyan)
-            drawLines(radarBeams, glm::vec3(0.0f, 0.9f, 0.9f), 1.0f, pointLineShaderProgram, sensorVAO, sensorVBO, view, projection);
         } else {
             radarWriteAccumulator = 0.0f;
         }
@@ -1961,6 +2032,7 @@ int main() {
     glDeleteVertexArrays(1, &quadVAO);
     glDeleteBuffers(1, &quadVBO);
     glDeleteProgram(cameraOverlayShader);
+    glDeleteProgram(cameraFrameShader);
 
     glDeleteFramebuffers(1, &droneCamFbo.fbo);
     glDeleteTextures(1, &droneCamFbo.colorTex);
