@@ -9,6 +9,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <chrono>
 #include <cstdint>
@@ -17,10 +18,12 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -34,12 +37,16 @@
 struct Vertex {
     glm::vec3 pos{};
     glm::vec3 normal{0.f, 1.f, 0.f};
+    glm::vec2 uv{0.f, 0.f};
 };
 
 struct Mesh {
     GLuint vao = 0;
     GLuint vbo = 0;
     size_t vertexCount = 0;
+    glm::vec3 boundsMin{0.f};
+    glm::vec3 boundsMax{0.f};
+    bool hasBounds = false;
 
     bool valid() const { return vao != 0 && vbo != 0 && vertexCount > 0; }
 
@@ -50,8 +57,101 @@ struct Mesh {
     }
 };
 
+struct ColoredMesh {
+    Mesh mesh;
+    glm::vec3 color{0.7f, 0.7f, 0.7f};
+    GLuint textureId = 0;
+    bool hasTexture = false;
+};
+
+struct CityModel {
+    std::vector<ColoredMesh> parts;
+    glm::vec3 boundsMin{0.f};
+    glm::vec3 boundsMax{0.f};
+    bool hasBounds = false;
+
+    bool valid() const { return !parts.empty(); }
+
+    void destroy() {
+        for (auto& p : parts) p.mesh.destroy();
+        for (auto& p : parts) {
+            if (p.textureId) glDeleteTextures(1, &p.textureId);
+        }
+        parts.clear();
+        hasBounds = false;
+    }
+};
+
+struct MaterialFallback {
+    std::string name;
+    glm::vec3 diffuse{1.f, 1.f, 1.f};
+    std::string diffuseTex;
+};
+
+static bool loadMtlFallback(const std::string& mtlPath,
+                            std::vector<MaterialFallback>& materials,
+                            std::unordered_map<std::string, int>& nameToId) {
+    std::ifstream in(mtlPath);
+    if (!in.is_open()) return false;
+
+    MaterialFallback current;
+    bool hasCurrent = false;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty()) continue;
+        std::istringstream iss(line);
+        std::string tag;
+        iss >> tag;
+        if (tag == "newmtl") {
+            if (hasCurrent) {
+                nameToId[current.name] = static_cast<int>(materials.size());
+                materials.push_back(current);
+            }
+            current = MaterialFallback{};
+            iss >> current.name;
+            hasCurrent = true;
+        } else if (tag == "Kd") {
+            iss >> current.diffuse.r >> current.diffuse.g >> current.diffuse.b;
+        } else if (tag == "map_Kd") {
+            std::string tex;
+            iss >> tex;
+            current.diffuseTex = tex;
+        }
+    }
+    if (hasCurrent) {
+        nameToId[current.name] = static_cast<int>(materials.size());
+        materials.push_back(current);
+    }
+    return !materials.empty();
+}
+
+static std::vector<int> parseObjFaceMaterialIds(const std::string& objPath,
+                                                const std::unordered_map<std::string, int>& nameToId) {
+    std::ifstream in(objPath);
+    if (!in.is_open()) return {};
+
+    std::vector<int> ids;
+    std::string line;
+    int currentId = -1;
+    while (std::getline(in, line)) {
+        if (line.rfind("usemtl ", 0) == 0) {
+            std::string name = line.substr(7);
+            auto it = nameToId.find(name);
+            currentId = (it != nameToId.end()) ? it->second : -1;
+        } else if (line.rfind("f ", 0) == 0) {
+            ids.push_back(currentId);
+        }
+    }
+    return ids;
+}
+
 static Mesh loadObjMesh(const std::string& path, float scale) {
     Mesh mesh;
+
+    if (!std::filesystem::exists(path)) {
+        std::cerr << "OBJ missing: " << path << "\n";
+        return mesh;
+    }
 
     tinyobj::attrib_t attrib;
     std::vector<tinyobj::shape_t> shapes;
@@ -66,7 +166,10 @@ static Mesh loadObjMesh(const std::string& path, float scale) {
                                path.c_str(), baseDir.c_str(), true);
     if (!warn.empty()) std::cerr << "OBJ warn: " << warn << "\n";
     if (!err.empty())  std::cerr << "OBJ err: " << err << "\n";
-    if (!ok) return mesh;
+    if (!ok) {
+        std::cerr << "OBJ load failed: " << path << "\n";
+        return mesh;
+    }
 
     std::vector<Vertex> vertices;
     size_t totalIdx = 0;
@@ -88,11 +191,28 @@ static Mesh loadObjMesh(const std::string& path, float scale) {
                                                     attrib.normals[ni + 1],
                                                     attrib.normals[ni + 2]));
             }
+            if (idx.texcoord_index >= 0) {
+                const size_t ti = static_cast<size_t>(idx.texcoord_index) * 2;
+                v.uv = glm::vec2(attrib.texcoords[ti + 0], attrib.texcoords[ti + 1]);
+            }
             vertices.push_back(v);
         }
     }
 
-    if (vertices.empty()) return mesh;
+    if (vertices.empty()) {
+        std::cerr << "OBJ has no triangles: " << path << "\n";
+        return mesh;
+    }
+
+    glm::vec3 mn(std::numeric_limits<float>::max());
+    glm::vec3 mx(std::numeric_limits<float>::lowest());
+    for (const auto& v : vertices) {
+        mn = glm::min(mn, v.pos);
+        mx = glm::max(mx, v.pos);
+    }
+    mesh.boundsMin = mn;
+    mesh.boundsMax = mx;
+    mesh.hasBounds = true;
 
     glGenVertexArrays(1, &mesh.vao);
     glBindVertexArray(mesh.vao);
@@ -105,6 +225,8 @@ static Mesh loadObjMesh(const std::string& path, float scale) {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal));
     glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, uv));
+    glEnableVertexAttribArray(2);
 
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -113,16 +235,231 @@ static Mesh loadObjMesh(const std::string& path, float scale) {
     return mesh;
 }
 
-static void drawMesh(const Mesh& mesh, GLuint shaderProgram, const glm::mat4& model, const glm::vec3& color) {
+static CityModel loadCityModel(const std::string& path, float scale) {
+    CityModel cm;
+
+    if (!std::filesystem::exists(path)) {
+        std::cerr << "OBJ missing: " << path << "\n";
+        return cm;
+    }
+
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warn, err;
+
+    std::filesystem::path p(path);
+    std::string baseDir = p.parent_path().string();
+    if (!baseDir.empty()) baseDir += "/";
+
+    bool ok = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
+                               path.c_str(), baseDir.c_str(), true);
+    if (!warn.empty()) std::cerr << "OBJ warn: " << warn << "\n";
+    if (!err.empty())  std::cerr << "OBJ err: " << err << "\n";
+    if (!ok) {
+        std::cerr << "OBJ load failed: " << path << "\n";
+        return cm;
+    }
+
+    std::vector<MaterialFallback> mtlFallback;
+    std::unordered_map<std::string, int> mtlNameToId;
+    std::vector<int> faceMatIds;
+
+    if (materials.empty()) {
+        std::string mtlPath;
+        std::ifstream objIn(path);
+        std::string line;
+        while (std::getline(objIn, line)) {
+            if (line.rfind("mtllib ", 0) == 0) {
+                mtlPath = baseDir + line.substr(7);
+                break;
+            }
+        }
+
+        if (!mtlPath.empty() && loadMtlFallback(mtlPath, mtlFallback, mtlNameToId)) {
+            materials.resize(mtlFallback.size());
+            for (size_t i = 0; i < mtlFallback.size(); ++i) {
+                materials[i].name = mtlFallback[i].name;
+                materials[i].diffuse[0] = mtlFallback[i].diffuse.r;
+                materials[i].diffuse[1] = mtlFallback[i].diffuse.g;
+                materials[i].diffuse[2] = mtlFallback[i].diffuse.b;
+                materials[i].diffuse_texname = mtlFallback[i].diffuseTex;
+            }
+            faceMatIds = parseObjFaceMaterialIds(path, mtlNameToId);
+        }
+    }
+
+    std::cout << "City materials: " << materials.size() << "\n";
+    if (!materials.empty()) {
+        size_t sampleCount = std::min<size_t>(3, materials.size());
+        for (size_t i = 0; i < sampleCount; ++i) {
+            std::cout << "City mat[" << i << "] map_Kd: " << materials[i].diffuse_texname << "\n";
+        }
+    }
+
+    std::unordered_map<int, std::vector<Vertex>> vertsByMat;
+    const std::vector<glm::vec3> palette = {
+        {0.75f, 0.75f, 0.75f},
+        {0.85f, 0.80f, 0.70f},
+        {0.70f, 0.80f, 0.85f},
+        {0.80f, 0.70f, 0.85f},
+        {0.85f, 0.85f, 0.70f},
+        {0.70f, 0.85f, 0.80f},
+        {0.80f, 0.75f, 0.70f},
+        {0.75f, 0.80f, 0.70f}
+    };
+    glm::vec3 mn(std::numeric_limits<float>::max());
+    glm::vec3 mx(std::numeric_limits<float>::lowest());
+
+    size_t globalFace = 0;
+    for (const auto& shape : shapes) {
+        size_t indexOffset = 0;
+        for (size_t f = 0; f < shape.mesh.num_face_vertices.size(); ++f) {
+            int fv = shape.mesh.num_face_vertices[f];
+            int matId = -1;
+            if (!shape.mesh.material_ids.empty()) {
+                matId = shape.mesh.material_ids[f];
+            } else if (!faceMatIds.empty() && globalFace < faceMatIds.size()) {
+                matId = faceMatIds[globalFace];
+            }
+            if (fv != 3) { indexOffset += fv; continue; }
+
+            std::array<Vertex, 3> tri{};
+            for (int v = 0; v < 3; ++v) {
+                tinyobj::index_t idx = shape.mesh.indices[indexOffset + v];
+                if (idx.vertex_index >= 0) {
+                    const size_t vi = static_cast<size_t>(idx.vertex_index) * 3;
+                    tri[v].pos = glm::vec3(attrib.vertices[vi + 0],
+                                           attrib.vertices[vi + 1],
+                                           attrib.vertices[vi + 2]) * scale;
+                    mn = glm::min(mn, tri[v].pos);
+                    mx = glm::max(mx, tri[v].pos);
+                }
+                if (idx.normal_index >= 0) {
+                    const size_t ni = static_cast<size_t>(idx.normal_index) * 3;
+                    tri[v].normal = glm::normalize(glm::vec3(attrib.normals[ni + 0],
+                                                             attrib.normals[ni + 1],
+                                                             attrib.normals[ni + 2]));
+                }
+                if (idx.texcoord_index >= 0) {
+                    const size_t ti = static_cast<size_t>(idx.texcoord_index) * 2;
+                    tri[v].uv = glm::vec2(attrib.texcoords[ti + 0], attrib.texcoords[ti + 1]);
+                }
+            }
+
+            if (materials.empty() || matId < 0 || static_cast<size_t>(matId) >= materials.size()) {
+                glm::vec3 c = (tri[0].pos + tri[1].pos + tri[2].pos) / 3.0f;
+                int bucket = static_cast<int>(std::abs(c.x * 0.1f + c.z * 0.1f));
+                matId = 1000 + (bucket % static_cast<int>(palette.size()));
+            }
+
+            auto& verts = vertsByMat[matId];
+            verts.push_back(tri[0]);
+            verts.push_back(tri[1]);
+            verts.push_back(tri[2]);
+
+            indexOffset += fv;
+            globalFace++;
+        }
+    }
+
+    if (!vertsByMat.empty()) {
+        cm.boundsMin = mn;
+        cm.boundsMax = mx;
+        cm.hasBounds = true;
+    }
+
+    int texturesTried = 0;
+    int texturesLoaded = 0;
+    for (const auto& [matId, verts] : vertsByMat) {
+        if (verts.empty()) continue;
+        ColoredMesh part;
+
+        glGenVertexArrays(1, &part.mesh.vao);
+        glBindVertexArray(part.mesh.vao);
+
+        glGenBuffers(1, &part.mesh.vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, part.mesh.vbo);
+        glBufferData(GL_ARRAY_BUFFER, verts.size() * sizeof(Vertex), verts.data(), GL_STATIC_DRAW);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, normal));
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, uv));
+        glEnableVertexAttribArray(2);
+
+        glBindVertexArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+        part.mesh.vertexCount = verts.size();
+
+        if (matId >= 0 && static_cast<size_t>(matId) < materials.size()) {
+            const auto& m = materials[matId];
+            part.color = glm::vec3(m.diffuse[0], m.diffuse[1], m.diffuse[2]);
+            if (!m.diffuse_texname.empty()) {
+                texturesTried++;
+                std::filesystem::path texPath = std::filesystem::path(baseDir) / m.diffuse_texname;
+                if (std::filesystem::exists(texPath)) {
+                    sf::Image img;
+                    if (img.loadFromFile(texPath.string())) {
+                        glGenTextures(1, &part.textureId);
+                        glBindTexture(GL_TEXTURE_2D, part.textureId);
+                        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, img.getSize().x, img.getSize().y, 0, GL_RGBA, GL_UNSIGNED_BYTE, img.getPixelsPtr());
+                        glGenerateMipmap(GL_TEXTURE_2D);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                        glBindTexture(GL_TEXTURE_2D, 0);
+                        part.hasTexture = true;
+                        texturesLoaded++;
+                    } else {
+                        std::cerr << "City texture load failed: " << texPath << "\n";
+                    }
+                } else {
+                    std::cerr << "City texture missing: " << texPath << "\n";
+                }
+            }
+        } else if (matId >= 1000) {
+            int idx = (matId - 1000) % static_cast<int>(palette.size());
+            part.color = palette[idx];
+        }
+        cm.parts.push_back(std::move(part));
+    }
+
+    if (texturesTried > 0) {
+        std::cout << "City textures loaded: " << texturesLoaded << " / " << texturesTried << "\n";
+    }
+
+    return cm;
+}
+
+static void drawMesh(const Mesh& mesh, GLuint shaderProgram, const glm::mat4& model, const glm::vec3& color,
+                     GLuint textureId = 0, bool useTexture = false) {
     if (!mesh.valid()) return;
 
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
     GLint colorLoc = glGetUniformLocation(shaderProgram, "uObjectColor");
     if (colorLoc != -1) glUniform3fv(colorLoc, 1, glm::value_ptr(color));
 
+    GLint useTexLoc = glGetUniformLocation(shaderProgram, "uUseTexture");
+    if (useTexLoc != -1) glUniform1i(useTexLoc, useTexture ? 1 : 0);
+    if (useTexture && textureId) {
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, textureId);
+        GLint texLoc = glGetUniformLocation(shaderProgram, "uTexture");
+        if (texLoc != -1) glUniform1i(texLoc, 1);
+    }
+
     glBindVertexArray(mesh.vao);
     glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(mesh.vertexCount));
     glBindVertexArray(0);
+
+    if (useTexture && textureId) {
+        glBindTexture(GL_TEXTURE_2D, 0);
+        glActiveTexture(GL_TEXTURE0);
+    }
 }
 
 struct DroneModel {
@@ -150,7 +487,12 @@ static DroneModel loadDroneModel(const std::string& dir, float scale) {
     dm.propFR = loadObjMesh(dir + "/prop_FR.obj", scale);
     dm.propRL = loadObjMesh(dir + "/prop_RL.obj", scale);
     dm.propRR = loadObjMesh(dir + "/prop_RR.obj", scale);
-    dm.loaded = dm.body.valid() && dm.propFL.valid() && dm.propFR.valid() && dm.propRL.valid() && dm.propRR.valid();
+    dm.loaded = dm.body.valid();
+    if (!dm.body.valid()) std::cerr << "Drone body mesh invalid.\n";
+    if (!dm.propFL.valid()) std::cerr << "Drone prop FL mesh invalid.\n";
+    if (!dm.propFR.valid()) std::cerr << "Drone prop FR mesh invalid.\n";
+    if (!dm.propRL.valid()) std::cerr << "Drone prop RL mesh invalid.\n";
+    if (!dm.propRR.valid()) std::cerr << "Drone prop RR mesh invalid.\n";
     if (!dm.loaded) std::cerr << "Drone model incomplete. Falling back to cube.\n";
     return dm;
 }
@@ -312,6 +654,8 @@ static inline void drawDroneBox(const Pose& p, const glm::vec3& scale, GLuint sh
 
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
     glUniform3f(glGetUniformLocation(shaderProgram, "uObjectColor"), 0.15f, 0.15f, 0.15f);
+    GLint useTexLoc = glGetUniformLocation(shaderProgram, "uUseTexture");
+    if (useTexLoc != -1) glUniform1i(useTexLoc, 0);
 
     glBindVertexArray(vao);
     glDrawArrays(GL_TRIANGLES, 0, 36);
@@ -320,7 +664,7 @@ static inline void drawDroneBox(const Pose& p, const glm::vec3& scale, GLuint sh
 
 // Draw drone from OBJ meshes (body + props)
 static inline void drawDroneModel(const Drone& d, const DroneModel& model, float propAngle, GLuint shaderProgram) {
-    if (!model.loaded) return;
+    if (!model.body.valid()) return;
 
     glm::mat4 base(1.f);
     base = glm::translate(base, d.p.pos);
@@ -355,10 +699,10 @@ static inline void drawDroneModel(const Drone& d, const DroneModel& model, float
     glm::mat4 rotCW  = glm::rotate(glm::mat4(1.f), propAngle, glm::vec3(0, 1, 0));
     glm::mat4 rotCCW = glm::rotate(glm::mat4(1.f), -propAngle, glm::vec3(0, 1, 0));
 
-    drawMesh(model.propFL, shaderProgram, base * modelFix * glm::translate(glm::mat4(1.f), offFL) * rotCW, propColor);
-    drawMesh(model.propRR, shaderProgram, base * modelFix * glm::translate(glm::mat4(1.f), offRR) * rotCW, propColor);
-    drawMesh(model.propFR, shaderProgram, base * modelFix * glm::translate(glm::mat4(1.f), offFR) * rotCCW, propColor);
-    drawMesh(model.propRL, shaderProgram, base * modelFix * glm::translate(glm::mat4(1.f), offRL) * rotCCW, propColor);
+    if (model.propFL.valid()) drawMesh(model.propFL, shaderProgram, base * modelFix * glm::translate(glm::mat4(1.f), offFL) * rotCW, propColor);
+    if (model.propRR.valid()) drawMesh(model.propRR, shaderProgram, base * modelFix * glm::translate(glm::mat4(1.f), offRR) * rotCW, propColor);
+    if (model.propFR.valid()) drawMesh(model.propFR, shaderProgram, base * modelFix * glm::translate(glm::mat4(1.f), offFR) * rotCCW, propColor);
+    if (model.propRL.valid()) drawMesh(model.propRL, shaderProgram, base * modelFix * glm::translate(glm::mat4(1.f), offRL) * rotCCW, propColor);
 }
 
 void drawDroneProjectedShadow(const Drone& drone, const glm::vec3& lightPos, GLuint shadowShader, GLuint cubeVAO, float groundY = 0.0f) {
@@ -465,6 +809,8 @@ public:
         if (glGetUniformLocation(shaderProgram, "uObjectColor") != -1) {
             glUniform3fv(glGetUniformLocation(shaderProgram, "uObjectColor"), 1, glm::value_ptr(color));
         }
+        GLint useTexLoc = glGetUniformLocation(shaderProgram, "uUseTexture");
+        if (useTexLoc != -1) glUniform1i(useTexLoc, 0);
 
         glBindVertexArray(vao);
         glDrawArrays(GL_TRIANGLES, 0, 36);
@@ -535,7 +881,7 @@ public:
 
 // ===================== Grid helpers =====================
 // Create colored grid vertices around origin (XZ plane)
-static std::vector<float> generateGridVertices(int halfSize = 10) {
+static std::vector<float> generateGridVertices(int halfSize = 5) {
     std::vector<float> vertices;
     float lineColor[3] = {0.25f, 0.25f, 0.25f};
     float centerColor[3] = {0.3f, 0.3f, 0.3f};
@@ -567,7 +913,7 @@ static std::vector<float> generateGridVertices(int halfSize = 10) {
 
 // Create VAO/VBO for grid lines
 static void createGridVAO(GLuint& vao, GLuint& vbo, int& vertexCount) {
-    std::vector<float> gridVertices = generateGridVertices(10);
+    std::vector<float> gridVertices = generateGridVertices(100);
     vertexCount = static_cast<int>(gridVertices.size() / 6);
 
     glGenVertexArrays(1, &vao);
@@ -743,6 +1089,40 @@ struct AABB { glm::vec3 mn, mx; int id; };
 static inline AABB makeAABB(const Object3D& o) {
     glm::vec3 h = 0.5f * o.dimensions;
     return {o.position - h, o.position + h, 0};
+}
+
+static inline AABB makeAABBFromMesh(const Mesh& mesh, const glm::mat4& model, int id) {
+    glm::vec3 mn = mesh.boundsMin;
+    glm::vec3 mx = mesh.boundsMax;
+    glm::vec3 corners[8] = {
+        {mn.x, mn.y, mn.z}, {mx.x, mn.y, mn.z}, {mn.x, mx.y, mn.z}, {mx.x, mx.y, mn.z},
+        {mn.x, mn.y, mx.z}, {mx.x, mn.y, mx.z}, {mn.x, mx.y, mx.z}, {mx.x, mx.y, mx.z}
+    };
+    glm::vec3 outMin(std::numeric_limits<float>::max());
+    glm::vec3 outMax(std::numeric_limits<float>::lowest());
+    for (const auto& c : corners) {
+        glm::vec4 w = model * glm::vec4(c, 1.0f);
+        glm::vec3 p(w.x, w.y, w.z);
+        outMin = glm::min(outMin, p);
+        outMax = glm::max(outMax, p);
+    }
+    return {outMin, outMax, id};
+}
+
+static inline AABB makeAABBFromBounds(const glm::vec3& mn, const glm::vec3& mx, const glm::mat4& model, int id) {
+    glm::vec3 corners[8] = {
+        {mn.x, mn.y, mn.z}, {mx.x, mn.y, mn.z}, {mn.x, mx.y, mn.z}, {mx.x, mx.y, mn.z},
+        {mn.x, mn.y, mx.z}, {mx.x, mn.y, mx.z}, {mn.x, mx.y, mx.z}, {mx.x, mx.y, mx.z}
+    };
+    glm::vec3 outMin(std::numeric_limits<float>::max());
+    glm::vec3 outMax(std::numeric_limits<float>::lowest());
+    for (const auto& c : corners) {
+        glm::vec4 w = model * glm::vec4(c, 1.0f);
+        glm::vec3 p(w.x, w.y, w.z);
+        outMin = glm::min(outMin, p);
+        outMax = glm::max(outMax, p);
+    }
+    return {outMin, outMax, id};
 }
 
 static inline bool rayAABB(const glm::vec3& ro, const glm::vec3& rd, const AABB& b, float tMax, float& tHit) {
@@ -1092,7 +1472,7 @@ static void drawLines(const std::vector<glm::vec3>& vertices, const glm::vec3& c
 struct ShadowMap {
     GLuint fbo = 0;
     GLuint depthTex = 0;
-    unsigned w = 8192, h = 8192;
+    unsigned w = 8192*2, h = 8192*2;
 
     void init() {
         glGenFramebuffers(1, &fbo);
@@ -1428,7 +1808,9 @@ static void renderSceneCubes(GLuint shader, GLuint cubeVAO,
                              const std::vector<std::unique_ptr<Object3D>>& objects,
                              const Drone& drone,
                              const DroneModel* droneModel,
-                             float propAngle) {
+                             float propAngle,
+                             const CityModel* city,
+                             const glm::mat4* cityTransform) {
     for (const auto& object : objects) object->draw(shader, cubeVAO);
 
     // Drone
@@ -1436,6 +1818,12 @@ static void renderSceneCubes(GLuint shader, GLuint cubeVAO,
         drawDroneModel(drone, *droneModel, propAngle, shader);
     } else {
         drawDroneBox(drone.p, drone.bodyScale, shader, cubeVAO);
+    }
+
+    if (city && cityTransform && city->valid()) {
+        for (const auto& part : city->parts) {
+            drawMesh(part.mesh, shader, *cityTransform, part.color, part.textureId, part.hasTexture);
+        }
     }
 }
 
@@ -1543,7 +1931,9 @@ static void shadowPass(const ShadowMap& sm, GLuint shadowShader,
                        const std::vector<std::unique_ptr<Object3D>>& objects,
                        const Drone& drone,
                        const DroneModel* droneModel,
-                       float propAngle) {
+                       float propAngle,
+                       const CityModel* city,
+                       const glm::mat4* cityTransform) {
     sm.bindForWrite();
     glUseProgram(shadowShader);
     glUniformMatrix4fv(glGetUniformLocation(shadowShader, "uLightSpaceMatrix"), 1, GL_FALSE, glm::value_ptr(lightSpace));
@@ -1551,7 +1941,8 @@ static void shadowPass(const ShadowMap& sm, GLuint shadowShader,
     // Draw objects using the same VAO; shader uses uModel only
     // Reuse the same routine which sets uModel for each object
     // but bind shadow shader instead of object shader.
-    renderSceneCubes(shadowShader, cubeVAO, objects, drone, droneModel, propAngle);
+    renderSceneCubes(shadowShader, cubeVAO, objects, drone, droneModel, propAngle,
+                     city, cityTransform);
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
@@ -1564,7 +1955,9 @@ static void mainPass(GLuint objectShader, GLuint cubeVAO,
                      const std::vector<std::unique_ptr<Object3D>>& objects,
                      const Drone& drone,
                      const DroneModel* droneModel,
-                     float propAngle) {
+                     float propAngle,
+                     const CityModel* city,
+                     const glm::mat4* cityTransform) {
     // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST);
 
@@ -1576,7 +1969,8 @@ static void mainPass(GLuint objectShader, GLuint cubeVAO,
 
     sm.bindForRead(objectShader, 0);
 
-    renderSceneCubes(objectShader, cubeVAO, objects, drone, droneModel, propAngle);
+    renderSceneCubes(objectShader, cubeVAO, objects, drone, droneModel, propAngle,
+                     city, cityTransform);
 
     glUseProgram(0);
     // glDisable(GL_DEPTH_TEST);
@@ -1671,6 +2065,12 @@ int main() {
     const float modelScale = 0.001f; // mm -> m
     DroneModel droneModel = loadDroneModel("model", modelScale);
 
+    CityModel city = loadCityModel("map/hh_clip.obj", 1.0f);
+    glm::mat4 cityTransform = glm::mat4(1.0f);
+    if (!city.valid()) {
+        std::cerr << "City clip not loaded (map/hh_clip.obj).\n";
+    }
+
     CameraFBO droneCamFbo;
     droneCamFbo.init(sensorCfg.camera.width, sensorCfg.camera.height);
     
@@ -1687,9 +2087,12 @@ int main() {
     // ---- Scene objects
     auto objects = loadObjectsOrDefault("config.yaml");
     auto worldAABBs = buildWorldAABBs(objects);
+    if (city.valid() && city.hasBounds) {
+        worldAABBs.push_back(makeAABBFromBounds(city.boundsMin, city.boundsMax, cityTransform, static_cast<int>(worldAABBs.size())));
+    }
 
     // ---- Lighting
-    glm::vec3 lightPos(5.0f, 30.0f, 3.0f);
+    glm::vec3 lightPos(5.0f, 50.0f, 3.0f);
     bool enableShadows = true;
 
     // ---- Camera & modes
@@ -1746,7 +2149,7 @@ int main() {
     int cameraFrameId = 0;
     const float cameraFps = sensorCfg.camera.fps;
     const float cameraPeriod = 1.0f / cameraFps;
-    float cameraWriteAccumulator = 0.0f;
+    float cameraRenderAccumulator = 0.0f;
 
     // ---- Timing
     sf::Clock deltaClock, fpsCounter;
@@ -1866,12 +2269,13 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         float aspect = static_cast<float>(window.getSize().x) / static_cast<float>(window.getSize().y);
-        glm::mat4 projection = glm::perspective(glm::radians(45.0f), aspect, 0.5f, 80.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(45.0f), aspect, 0.5f, 500.0f);
         glm::mat4 view = glm::lookAt(cam.pos, cam.pos + cam.front, cam.up);
 
         // ---- Light space (orthographic, directional-like)
-        float nearPlane = 1.0f, farPlane = 70.0f;
-        glm::mat4 lightProj = glm::ortho(-20.0f, 20.0f, -20.0f, 20.0f, nearPlane, farPlane);
+        float nearPlane = 0.1f, farPlane = 100.0f;
+        float lightRange = 80.0f;
+        glm::mat4 lightProj = glm::ortho(-lightRange, lightRange, -lightRange, lightRange, nearPlane, farPlane);
         glm::mat4 lightView = glm::lookAt(lightPos, glm::vec3(0.0f, 0.0f, 0.0f), cam.up);
         glm::mat4 lightSpace = lightProj * lightView;
 
@@ -1896,7 +2300,8 @@ int main() {
 
         // ---- Pass 1: Shadow depth
         if (enableShadows) {
-            shadowPass(shadow, shadowShader, lightSpace, cubeVAO, objects, drone, &droneModel, propAngle);
+            shadowPass(shadow, shadowShader, lightSpace, cubeVAO, objects, drone, &droneModel, propAngle,
+                       &city, &cityTransform);
         }
 
         // ---- Pass 2: Grid + scene
@@ -1908,7 +2313,8 @@ int main() {
         renderGround(gridShader, groundVAO, projection, view, lightSpace, lightPos, shadow);
         
         // Opaque scene with shadow map
-        mainPass(objectShader, cubeVAO, projection, view, lightSpace, lightPos, shadow, objects, drone, &droneModel, propAngle);
+        mainPass(objectShader, cubeVAO, projection, view, lightSpace, lightPos, shadow, objects, drone, &droneModel, propAngle,
+               &city, &cityTransform);
         
         renderGrid(gridShader, gridVAO, gridVertexCount, projection, view, lightSpace, lightPos, shadow,
                glm::vec3(0.5f, 0.5f, 0.5f));
@@ -1919,34 +2325,36 @@ int main() {
 
         // ---- Drone camera: render to texture
         if (enableCamera) {
-            glm::vec3 camPos = drone.p.pos + glm::vec3(0.0f, 0.3f, 0.0f);
-            glm::vec3 camFwd = forwardFrom(drone.p);
-            glm::mat4 camView = glm::lookAt(camPos, camPos + camFwd, glm::vec3(0.0f, 1.0f, 0.0f));
-            float camAspect = static_cast<float>(droneCamFbo.w) / static_cast<float>(droneCamFbo.h);
-            glm::mat4 camProj = glm::perspective(glm::radians(sensorCfg.camera.fov_deg), camAspect, 0.2f, 80.0f);
+            cameraRenderAccumulator += dtSmooth;
+            if (cameraRenderAccumulator >= cameraPeriod) {
+                cameraRenderAccumulator = std::fmod(cameraRenderAccumulator, cameraPeriod);
 
-            droneCamFbo.bind();
-            glClearColor(0.8f, 0.9f, 1.0f, 1.0f);
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                glm::vec3 camPos = drone.p.pos + glm::vec3(0.0f, 0.3f, 0.0f);
+                glm::vec3 camFwd = forwardFrom(drone.p);
+                glm::mat4 camView = glm::lookAt(camPos, camPos + camFwd, glm::vec3(0.0f, 1.0f, 0.0f));
+                float camAspect = static_cast<float>(droneCamFbo.w) / static_cast<float>(droneCamFbo.h);
+                glm::mat4 camProj = glm::perspective(glm::radians(sensorCfg.camera.fov_deg), camAspect, 0.2f, 80.0f);
 
-            renderGround(gridShader, groundVAO, camProj, camView, lightSpace, lightPos, shadow);
-            mainPass(objectShader, cubeVAO, camProj, camView, lightSpace, lightPos, shadow, objects, drone, &droneModel, propAngle);
-            renderGrid(gridShader, gridVAO, gridVertexCount, camProj, camView, lightSpace, lightPos, shadow,
-                       glm::vec3(0.5f, 0.5f, 0.5f));
+                droneCamFbo.bind();
+                glClearColor(0.8f, 0.9f, 1.0f, 1.0f);
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-            if (showLidarInCam && !lidarPoints.empty()) {
-                drawPoints(lidarPoints, glm::vec3(1.0f, 0.0f, 0.0f), 3.0f, pointLineShaderProgram, sensorVAO, sensorVBO, camView, camProj, false);
-            }
-            if (showRadarInCam && !radarPoints.empty()) {
-                drawPoints(radarPoints, glm::vec3(0.0f, 1.0f, 0.0f), 3.0f, pointLineShaderProgram, sensorVAO, sensorVBO, camView, camProj, false);
-            }
+                renderGround(gridShader, groundVAO, camProj, camView, lightSpace, lightPos, shadow);
+                mainPass(objectShader, cubeVAO, camProj, camView, lightSpace, lightPos, shadow, objects, drone, &droneModel, propAngle,
+                         &city, &cityTransform);
+                renderGrid(gridShader, gridVAO, gridVertexCount, camProj, camView, lightSpace, lightPos, shadow,
+                           glm::vec3(0.5f, 0.5f, 0.5f));
 
-            droneCamFbo.unbind(window.getSize().x, window.getSize().y);
+                if (showLidarInCam && !lidarPoints.empty()) {
+                    drawPoints(lidarPoints, glm::vec3(1.0f, 0.0f, 0.0f), 3.0f, pointLineShaderProgram, sensorVAO, sensorVBO, camView, camProj, false);
+                }
+                if (showRadarInCam && !radarPoints.empty()) {
+                    drawPoints(radarPoints, glm::vec3(0.0f, 1.0f, 0.0f), 3.0f, pointLineShaderProgram, sensorVAO, sensorVBO, camView, camProj, false);
+                }
 
-            cameraWriteAccumulator += dtSmooth;
-            while (cameraWriteAccumulator >= cameraPeriod) {
+                droneCamFbo.unbind(window.getSize().x, window.getSize().y);
+
                 saveCameraFrame(cameraOutputDir, cameraFrameId++, droneCamFbo);
-                cameraWriteAccumulator -= cameraPeriod;
             }
 
             unsigned windowW = window.getSize().x;
@@ -1966,7 +2374,7 @@ int main() {
             drawCameraOverlay(cameraOverlayShader, quadVAO, droneCamFbo.colorTex,
                               windowW, windowH, overlayW, overlayH, 16);
         } else {
-            cameraWriteAccumulator = 0.0f;
+            cameraRenderAccumulator = 0.0f;
         }
 
         // ---- Sensors (debug render)
@@ -2038,6 +2446,7 @@ int main() {
     glDeleteTextures(1, &droneCamFbo.colorTex);
     glDeleteRenderbuffers(1, &droneCamFbo.depthRbo);
 
+    city.destroy();
     droneModel.destroy();
 
     std::cout << "Exiting successfully!\n";

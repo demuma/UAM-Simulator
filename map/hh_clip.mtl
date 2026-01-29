@@ -1,0 +1,749 @@
+newmtl tex_0
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/da3939f1-21d1-4269-934a-714f2526ce3d.png
+
+newmtl tex_1
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/80099fcc-2acd-4875-860d-e744d6a585dc.png
+
+newmtl tex_2
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/9916fcb0-f3dd-4696-bf39-d30aac709229.png
+
+newmtl tex_3
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/6aac4ddf-9a2b-4ad1-9938-a1e1591502a1.png
+
+newmtl tex_4
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/69be1468-bebb-4000-bf4c-c9700b8a86ba.png
+
+newmtl tex_5
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/4860915c-355e-4175-9cc0-fba81fc534ef.png
+
+newmtl tex_6
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/355b947a-5a8a-4d51-b6b8-b2a706b93766.png
+
+newmtl tex_7
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/acaa8057-8734-4125-81e3-02b3121758f9.png
+
+newmtl tex_8
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/9321aa7b-9e91-418f-a2c7-ada305a6c3ad.png
+
+newmtl tex_9
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/5f47e1b2-f20c-4b00-97e3-b4abf8415fcb.png
+
+newmtl tex_10
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/a9660023-c4f7-4a3e-8b12-3f36982051cf.png
+
+newmtl tex_11
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/e5cbbccd-5965-4d19-9152-f20e67cb7816.png
+
+newmtl tex_12
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/45030e51-0bb7-4332-89df-fe51488d4cf2.png
+
+newmtl tex_13
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/3cf77ede-75fd-40a9-91b3-89ed7662f98f.png
+
+newmtl tex_14
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/f9c7d84b-507d-484d-ad17-bfaa0ae7616b.png
+
+newmtl tex_15
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/4cbcb8b4-e758-4595-8753-d9f017862261.png
+
+newmtl tex_16
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/0c1fb2a9-1d17-47a2-9dc7-94fab8ef5a60.png
+
+newmtl tex_17
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/9df13461-7ebc-4f36-8909-6016157b4ba6.png
+
+newmtl tex_18
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/860f43dc-b4c1-46ff-afb3-1a4d76a155be.png
+
+newmtl tex_19
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/b6c6b43d-a547-4c5d-847d-51c9949ce0e2.png
+
+newmtl tex_20
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/d7c6a337-4f23-44af-966a-c669eb10f2f6.png
+
+newmtl tex_21
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/a0b0a179-9983-4935-8450-1b5e0df1161c.png
+
+newmtl tex_22
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/4169b806-6b3a-4c82-bba1-48690eb585a8.png
+
+newmtl tex_23
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/e48ea964-01f1-4275-b4cd-9b587c60e62d.png
+
+newmtl tex_24
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/4ebb4c5b-e170-4cdb-b48b-8b9cc2f55e83.png
+
+newmtl tex_25
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/a40b6b1e-20fc-41bf-b810-407b5d543e1c.png
+
+newmtl tex_26
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/3df269b0-3123-4b84-a9af-63f09c1b4ac8.png
+
+newmtl tex_27
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/4c07c2a6-b7de-458a-9c2b-d1df56a783ff.png
+
+newmtl tex_28
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/914de1d7-604d-48c3-8868-9ed221f5c611.png
+
+newmtl tex_29
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/86e79529-4018-4f93-99bc-93a6a9f6ada1.png
+
+newmtl tex_30
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/48bf227d-1ca6-44fd-865e-b23242d0d1c1.png
+
+newmtl tex_31
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/11911f6d-e8ce-4213-9808-0665e12ca4c6.png
+
+newmtl tex_32
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/d31305e7-7600-49ad-bb57-fbf80c4f29f2.png
+
+newmtl tex_33
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/0f667803-046d-4998-9903-d107436a84bd.png
+
+newmtl tex_34
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/bb1a3357-3365-4aa4-b1fc-ed25b76f9b63.png
+
+newmtl tex_35
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/9c77495d-312a-46d7-923d-9fa108a26ee0.png
+
+newmtl tex_36
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/441a15dc-2fbf-431c-a015-b82be87f337f.png
+
+newmtl tex_37
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/da691268-608e-4e23-898d-e2d5b9003ff0.png
+
+newmtl tex_38
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/d6321752-85b4-45ec-87ae-469675c2e001.png
+
+newmtl tex_39
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/f8dd4384-0511-41e2-8c43-04e5ab82b436.png
+
+newmtl tex_40
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/1e53e94c-f094-4fe4-bc83-d7d969758d29.png
+
+newmtl tex_41
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/12ac04a1-ce44-45d3-ba66-01647deba730.png
+
+newmtl tex_42
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/c1f70edd-fb8b-40b7-9f3f-ddbe0143e3f2.png
+
+newmtl tex_43
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/14242e8c-744c-403d-9fee-109e511c9d37.png
+
+newmtl tex_44
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/526b709e-6bfa-4c85-b219-8e8e3b40c08c.png
+
+newmtl tex_45
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/f7388d75-8dc2-4f8f-81e8-23620af5d6f5.png
+
+newmtl tex_46
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/44f04e6b-7a24-40de-a33f-83cb8f0a3d61.png
+
+newmtl tex_47
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/153dadcc-00fc-42c7-bf8d-27d5b474663f.png
+
+newmtl tex_48
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/061d0b58-ec2a-4d48-b26f-f16234d4699c.png
+
+newmtl tex_49
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/0090c29a-d498-4d66-9db7-6a589873b91c.png
+
+newmtl tex_50
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/8b249c93-bb59-4a1e-ab49-68003af17467.png
+
+newmtl tex_51
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/c7d96208-244c-4844-a490-3f60c7219028.png
+
+newmtl tex_52
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/ee69a694-cdd7-4ed7-971d-03794ed0db94.png
+
+newmtl tex_53
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/f705ac2f-a686-4ded-b42e-5298b9eaca0d.png
+
+newmtl tex_54
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/ffc0bbc0-e468-49c9-bfa2-1139ea9d0c45.png
+
+newmtl tex_55
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/14b8f550-3a01-4722-b6de-28269db21e7e.png
+
+newmtl tex_56
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/5a617d58-c0d2-4770-a61f-82a875d74afc.png
+
+newmtl tex_57
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/4d600fe6-be08-4323-a27e-a90f62e9f262.png
+
+newmtl tex_58
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/6f3cbbaf-1941-478c-97fe-ee71b4ec0d87.png
+
+newmtl tex_59
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/2531bfe3-466a-49cc-bc10-cd15f95bfdba.png
+
+newmtl tex_60
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/b0d53373-4470-4352-9f43-702e790a42cd.png
+
+newmtl tex_61
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/dcd3fb82-9df1-485f-8ec2-b054ed8a789f.png
+
+newmtl tex_62
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/6625ecaf-719e-44f2-b76a-7831c3f5bd3b.png
+
+newmtl tex_63
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/8a64120f-6e44-4a25-98d7-cc33c5f88d28.png
+
+newmtl tex_64
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/8cd8c021-c8f6-4a1a-8bc2-5c537617dbb7.png
+
+newmtl tex_65
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/36bac6fd-1c99-49b2-9ae4-e6d21f22b893.png
+
+newmtl tex_66
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/cb5fa0cf-13be-492d-93ba-961572ee77db.png
+
+newmtl tex_67
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/b14139e9-6d29-4cf0-bb69-9e07c2d5e4d1.png
+
+newmtl tex_68
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/4a3f7db2-8220-4fcd-bca6-081ed460e366.png
+
+newmtl tex_69
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/9f3097a2-4129-4780-87ce-ccbfaca9ea0c.png
+
+newmtl tex_70
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/c770c18f-fc20-445d-bb48-5662e6866b69.png
+
+newmtl tex_71
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/45dab168-a4b6-4d84-ac79-5a376571c9ba.png
+
+newmtl tex_72
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/d04450b6-c91c-4b4e-a5ee-dd5fa95234ec.png
+
+newmtl tex_73
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/80ce7529-2833-483e-bf7f-aab9a3b3070d.png
+
+newmtl tex_74
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/ee5b259d-60d3-4175-b328-340798bcd342.png
+
+newmtl tex_75
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/93a8b4c7-d5f1-4391-8972-edb808b56b19.png
+
+newmtl tex_76
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/4410aef7-d225-4782-8c21-27bfa23f0d44.png
+
+newmtl tex_77
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/398c81ca-558d-4c2a-b366-e532163a8ba2.png
+
+newmtl tex_78
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/2ed7178a-85cb-4f5d-943d-bfb06e65937e.png
+
+newmtl tex_79
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/d6936555-2483-459f-b3d0-4d69da87cdfe.png
+
+newmtl tex_80
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/f532f74d-7ac4-4507-a1c4-8c75102c755b.png
+
+newmtl tex_81
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/43a29058-9918-451a-bb7c-33d0690ef564.png
+
+newmtl tex_82
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/c23133ca-0f16-4a70-896c-5ed57397986c.png
+
+newmtl tex_83
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/01ffbf14-b473-4261-971e-445bbf508ec6.png
+
+newmtl tex_84
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/5b69bebc-1632-42a5-8554-22e553720ae6.png
+
+newmtl tex_85
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/52382cd9-761b-4142-8ffd-84597e20b84d.png
+
+newmtl tex_86
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/b07ec245-dd33-46ff-a534-4478208ca7e0.png
+
+newmtl tex_87
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/0b6839c8-a615-421a-98cb-2ce268a5ff24.png
+
+newmtl tex_88
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/9424f023-0056-4182-a257-55230fad9518.png
+
+newmtl tex_89
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/c3a1e92e-c6c6-47c2-8569-0d4f73fa3309.png
+
+newmtl tex_90
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/5d8e9871-b598-4a86-ad8d-5116a885ec9e.png
+
+newmtl tex_91
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/75394833-2ec7-4795-8a02-9b1f5d2a56e3.png
+
+newmtl tex_92
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/e2d5e1be-ccf2-4cd2-a7ac-972f52e44e56.png
+
+newmtl tex_93
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/ddd706c1-873b-4d3d-9f0a-4ea130e803ee.png
+
+newmtl tex_94
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/e92d366c-a2f2-47ea-9cdc-42c7f4be5e41.png
+
+newmtl tex_95
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/f0748593-4473-404a-9779-2afcd2f1104b.png
+
+newmtl tex_96
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/35edc1ec-12ed-473f-9a6c-370d6e42db50.png
+
+newmtl tex_97
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/10afb314-19c9-468d-b198-d5d31e204494.png
+
+newmtl tex_98
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/b25ea49d-8792-4072-9499-4ec079fc9868.png
+
+newmtl tex_99
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/a1fa534c-3af6-4dbe-b27c-d9127121baf9.png
+
+newmtl tex_100
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/77adadf4-69ff-420f-b215-8306c15cd11c.png
+
+newmtl tex_101
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/2c8adf6f-6fa2-4010-abb4-f3a4bdfb427a.png
+
+newmtl tex_102
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/c9a47a57-ec25-4370-9f37-8294da45d45a.png
+
+newmtl tex_103
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/7da38aa8-f17f-418e-adc2-d2daee495362.png
+
+newmtl tex_104
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/f84fdbbf-1622-4776-ae97-a6ae4d971146.png
+
+newmtl tex_105
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/6c7d9c67-82fc-4805-9260-3c7724eaf4b2.png
+
+newmtl tex_106
+Kd 1.000 1.000 1.000
+Ka 0.200 0.200 0.200
+Ks 0.000 0.000 0.000
+d 1.0
+map_Kd LoD3-HH_Area3_2024_04_04/5130/images_upscaled_x4/00283a55-33d0-4cf7-a421-d4c8437590f4.png
+

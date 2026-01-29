@@ -3,6 +3,7 @@
 // Inputs vom Vertex Shader
 in vec3 vFragPos;
 in vec3 vNormal;
+in vec2 vTex;
 
 // Output-Farbe
 out vec4 FragColor;
@@ -10,6 +11,8 @@ out vec4 FragColor;
 // Uniforms (Daten vom C++ Code)
 uniform vec3 uObjectColor; // Die Grundfarbe des Objekts
 uniform vec3 uLightPos;    // Die Position der Lichtquelle
+uniform sampler2D uTexture;
+uniform int uUseTexture;
 
 // NEUE UNIFORMS FÜR SCHATTEN
 uniform sampler2D uShadowMap;
@@ -57,10 +60,11 @@ void main()
     vec3 lightDir = normalize(uLightPos - vFragPos);
     
     float ambientStrength = 0.3;
-    vec3 ambient = ambientStrength * uObjectColor;
+    vec3 baseColor = (uUseTexture == 1) ? texture(uTexture, vTex).rgb : uObjectColor;
+    vec3 ambient = ambientStrength * baseColor;
     
     float diff = max(dot(norm, lightDir), 0.0);
-    vec3 diffuse = diff * uObjectColor;
+    vec3 diffuse = diff * baseColor;
 
     // 2. SCHATTEN BERECHNEN
     float shadowFactor = calculateShadow(norm, lightDir);

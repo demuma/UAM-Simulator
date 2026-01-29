@@ -1,0 +1,15 @@
+.DS_Store
+**/.DS_Store
+
+# Build artifacts
+**/build/
+**/CMakeFiles/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/Makefile
+**/compile_commands.json
+
+# Large datasets
+map/LoD3-HH_Area3_2024_04_04/
+map/**/images_upscaled_x*/
+map/**/weights/

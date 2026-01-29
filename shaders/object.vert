@@ -2,10 +2,12 @@
 
 layout (location = 0) in vec3 aPos;    // Vertex-Position (aus dem VBO)
 layout (location = 1) in vec3 aNormal; // Normalenvektor (aus dem VBO)
+layout (location = 2) in vec2 aTex;    // UV
 
 // Outputs an den Fragment Shader
 out vec3 vFragPos;  // Position im Weltraum
 out vec3 vNormal;   // Normale im Weltraum
+out vec2 vTex;
 
 // Uniforms (Daten vom C++ Code)
 uniform mat4 uModel;
@@ -29,6 +31,8 @@ void main()
     
     // Normalen korrekt transformieren (besonders bei Skalierung)
     vNormal = mat3(transpose(inverse(uModel))) * aNormal;
+
+    vTex = aTex;
 
     // Position des Vertex im Light-Space
     vLightSpacePos = uLightSpaceMatrix * uModel * vec4(aPos, 1.0);

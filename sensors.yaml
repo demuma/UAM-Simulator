@@ -23,5 +23,5 @@ camera:
   width: 640
   height: 360
   fov_deg: 60.0
-  fps: 10.0
+  fps: 20.0
   outputDir: camera_output
