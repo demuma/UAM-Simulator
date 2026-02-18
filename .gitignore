@@ -10,6 +10,14 @@
 **/compile_commands.json
 
 # Large datasets
-map/LoD3-HH_Area3_2024_04_04/
+map/LoD3-HH_Area*/
+map/tile*/
 map/**/images_upscaled_x*/
 map/**/weights/
+map/hh_clip.mtl/
+map/hh_clip.obj/
+
+# Sensor data
+radar_output/
+lidar_output/
+camera_output/

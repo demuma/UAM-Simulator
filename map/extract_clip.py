@@ -9,8 +9,8 @@ def main():
     TEXTURE_SUBDIR = "images_upscaled_x4"
 
     base_dir = Path(__file__).resolve().parent  # map/
-    default_tile = base_dir / "LoD3-HH_Area3_2024_04_04" / "5130"
-    default_gml = default_tile / "5130.gml"
+    default_tile = base_dir / "LoD3-HH_Area4_2024_10_10" / "6734"
+    default_gml = default_tile / "6734.gml"
     default_mtl = base_dir / "hh_clip.mtl"
     default_obj = base_dir / "hh_clip.obj"
 
@@ -19,6 +19,11 @@ def main():
         "--gml",
         default=str(default_gml),
         help="Path to the CityGML tile file",
+    )
+    parser.add_argument(
+        "--full-tile",
+        action="store_true",
+        help="Export the full tile envelope instead of a centered clip window",
     )
     args = parser.parse_args()
 
@@ -42,6 +47,10 @@ def main():
     maxE = centerE + half
     minN = centerN - half
     maxN = centerN + half
+    if args.full_tile:
+        minE, maxE = lo[0], hi[0]
+        minN, maxN = lo[1], hi[1]
+        half = max(maxE - minE, maxN - minN) * 0.5
 
     ring_blocks = re.findall(r'<gml:LinearRing[^>]*gml:id="([^"]+)"[^>]*>\s*<gml:posList[^>]*>([^<]+)</gml:posList>', text, re.S)
     ring_pos = {}
@@ -97,7 +106,7 @@ def main():
         if all(inside(p) for p in pts):
             rings.append((ring_id, pts))
 
-    if count > 0:
+    if count > 0 and not args.full_tile:
         centerE = sumE / count
         centerN = sumN / count
         minE = centerE - half
@@ -111,7 +120,7 @@ def main():
             if all(inside(p) for p in pts):
                 rings.append((ring_id, pts))
 
-    if not rings:
+    if not rings and not args.full_tile:
         print('No polygons fully inside 200x200m window, expanding to 400x400m')
         half = 200.0
         minE = centerE - half
@@ -154,7 +163,7 @@ def main():
             # Match upscaler output extension (.png by default)
             if tex_rel.lower().endswith(".jpg") or tex_rel.lower().endswith(".jpeg"):
                 tex_rel = str(Path(tex_rel).with_suffix(".png"))
-            mtl.write(f"map_Kd LoD3-HH_Area3_2024_04_04/{tile_dir}/{tex_rel}\n\n")
+            mtl.write(f"map_Kd LoD3-HH_Area4_2024_10_10/{tile_dir}/{tex_rel}\n\n")
 
     def area2d(poly2):
         a = 0.0
@@ -190,58 +199,6 @@ def main():
             x1, y1 = uvs[(i + 1) % len(uvs)]
             a += x0 * y1 - x1 * y0
         return 0.5 * a
-
-    def rotate_list(lst, k):
-        if not lst:
-            return lst
-        k %= len(lst)
-        return lst[k:] + lst[:k]
-
-    def best_uv_alignment(poly, uvs):
-        n = len(poly)
-        if n < 3:
-            return uvs
-
-        def edge_lengths_pts(pts):
-            lens = []
-            for i in range(len(pts)):
-                x0, y0, z0 = pts[i]
-                x1, y1, z1 = pts[(i + 1) % len(pts)]
-                dx, dy, dz = (x1 - x0), (y1 - y0), (z1 - z0)
-                lens.append((dx*dx + dy*dy + dz*dz) ** 0.5)
-            s = sum(lens) or 1.0
-            return [l / s for l in lens]
-
-        def edge_lengths_uv(uvs2):
-            lens = []
-            for i in range(len(uvs2)):
-                x0, y0 = uvs2[i]
-                x1, y1 = uvs2[(i + 1) % len(uvs2)]
-                dx, dy = (x1 - x0), (y1 - y0)
-                lens.append((dx*dx + dy*dy) ** 0.5)
-            s = sum(lens) or 1.0
-            return [l / s for l in lens]
-
-        poly_lens = edge_lengths_pts(poly)
-
-        def score_alignment(uvs2):
-            uv_lens = edge_lengths_uv(uvs2)
-            best = (1e9, 0)
-            for k in range(n):
-                err = 0.0
-                for i in range(n):
-                    err += abs(poly_lens[i] - uv_lens[(i + k) % n])
-                if err < best[0]:
-                    best = (err, k)
-            return best
-
-        err_fwd, k_fwd = score_alignment(uvs)
-        rev = list(reversed(uvs))
-        err_rev, k_rev = score_alignment(rev)
-
-        if err_rev < err_fwd:
-            return rotate_list(rev, k_rev)
-        return rotate_list(uvs, k_fwd)
 
     def point_in_tri(pt, a, b, c):
         px, py = pt
@@ -315,7 +272,6 @@ def main():
         vt_idx = 1
         vn_idx = 1
         winding_mismatches = 0
-        winding_flipped = 0
         winding_checked = 0
         for ring_id, poly in rings:
             if len(poly) >= 2 and all(abs(poly[0][i]-poly[-1][i]) < 1e-6 for i in range(3)):
@@ -341,17 +297,14 @@ def main():
             if len(uvs) != len(poly):
                 continue
 
-            # Diagnostic: check winding consistency between geometry and UVs
+            # Diagnostic: original winding consistency between geometry and UVs
             poly2_geom = project_2d(poly)
             if poly2_geom:
                 winding_checked += 1
                 if area2d(poly2_geom) * area2d_uv(uvs) < 0.0:
                     winding_mismatches += 1
-                    uvs = list(reversed(uvs))
-                    winding_flipped += 1
 
-            # Align UV start index (and possible reversal) by matching edge-length patterns
-            uvs = best_uv_alignment(poly, uvs)
+            # Keep original UV order/mapping from source (no heuristic reordering).
 
             mat_name = images.get(image_uri)
             if mat_name:
@@ -394,7 +347,11 @@ def main():
                 vt_idx += 3
                 vn_idx += 3
 
-    print('Wrote', out_path, 'triangles', (v_idx-1)//3)
+    print('Wrote', out_path, 'triangles', (v_idx-1)//3,
+          'winding_checked', winding_checked,
+          'winding_mismatches', winding_mismatches,
+          'uv_swap', UV_SWAP,
+          'uv_flip_v', UV_FLIP_V)
 
 if __name__ == '__main__':
     main()

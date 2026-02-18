@@ -499,7 +499,7 @@ static DroneModel loadDroneModel(const std::string& dir, float scale) {
 
 // ===================== Math / Pose =====================
 struct Pose {
-    glm::vec3 pos{0.f, 1.0f, 0.f};
+    glm::vec3 pos{0.f, 100.0f, 0.f};
     float yaw = 0.f;   // degrees (CCW around +Y when seen from above)
     float pitch = 0.f; // degrees
 };
@@ -2066,7 +2066,12 @@ int main() {
     DroneModel droneModel = loadDroneModel("model", modelScale);
 
     CityModel city = loadCityModel("map/hh_clip.obj", 1.0f);
-    glm::mat4 cityTransform = glm::mat4(1.0f);
+    const float cityYawDeg = 0.0f; // rotate clockwise if model appears left-rotated
+    const bool cityMirrorX = true; // flip X if the OBJ appears mirrored
+    glm::mat4 cityTransform = glm::rotate(glm::mat4(1.0f), glm::radians(cityYawDeg), glm::vec3(0.f, 1.f, 0.f));
+    if (cityMirrorX) {
+        cityTransform = cityTransform * glm::scale(glm::mat4(1.0f), glm::vec3(-1.f, 1.f, 1.f));
+    }
     if (!city.valid()) {
         std::cerr << "City clip not loaded (map/hh_clip.obj).\n";
     }

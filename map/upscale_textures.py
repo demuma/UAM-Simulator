@@ -7,7 +7,7 @@ import cv2
 
 def main():
     base_dir = Path(__file__).resolve().parent  # map/
-    default_tile = base_dir / "LoD3-HH_Area3_2024_04_04" / "5130"
+    default_tile = base_dir / "LoD3-HH_Area4_2024_10_10" / "6734"
 
     parser = argparse.ArgumentParser(description="Upscale CityGML texture images with Real-ESRGAN")
     parser.add_argument("--tile", default=str(default_tile),
