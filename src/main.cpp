@@ -44,6 +44,7 @@ struct Mesh {
     GLuint vao = 0;
     GLuint vbo = 0;
     size_t vertexCount = 0;
+    std::vector<Vertex> cpuVertices;
     glm::vec3 boundsMin{0.f};
     glm::vec3 boundsMax{0.f};
     bool hasBounds = false;
@@ -54,6 +55,7 @@ struct Mesh {
         if (vao) glDeleteVertexArrays(1, &vao);
         if (vbo) glDeleteBuffers(1, &vbo);
         vao = 0; vbo = 0; vertexCount = 0;
+        cpuVertices.clear();
     }
 };
 
@@ -69,6 +71,8 @@ struct CityModel {
     glm::vec3 boundsMin{0.f};
     glm::vec3 boundsMax{0.f};
     bool hasBounds = false;
+    std::optional<glm::dvec2> utmCenter;
+    float sourceHalfExtent = 0.0f;
 
     bool valid() const { return !parts.empty(); }
 
@@ -79,8 +83,59 @@ struct CityModel {
         }
         parts.clear();
         hasBounds = false;
+        utmCenter.reset();
+        sourceHalfExtent = 0.0f;
     }
 };
+
+struct GeoReference {
+    bool valid = false;
+    glm::dvec2 utmCenter{0.0, 0.0};
+    std::string crs = "EPSG:25832";
+    glm::mat4 mapLocalToSim{1.0f};
+    glm::mat4 simToMapLocal{1.0f};
+
+    glm::dvec2 simToWorld(const glm::vec3& p) const {
+        glm::vec3 local = glm::vec3(simToMapLocal * glm::vec4(p, 1.0f));
+        return utmCenter + glm::dvec2(static_cast<double>(local.x), static_cast<double>(local.z));
+    }
+
+    glm::vec3 worldToSim(double easting, double northing, float altitudeMeters) const {
+        glm::vec3 mapLocal(static_cast<float>(easting - utmCenter.x),
+                           altitudeMeters,
+                           static_cast<float>(northing - utmCenter.y));
+        return glm::vec3(mapLocalToSim * glm::vec4(mapLocal, 1.0f));
+    }
+};
+
+static std::optional<GeoReference> readGeoReferenceFromObj(const std::string& objPath) {
+    std::ifstream in(objPath);
+    if (!in.is_open()) return std::nullopt;
+
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty()) continue;
+        if (line[0] != '#') break;
+        auto centerEPos = line.find("centerE ");
+        auto centerNPos = line.find("centerN ");
+        if (centerEPos == std::string::npos || centerNPos == std::string::npos) continue;
+
+        std::istringstream iss(line.substr(1));
+        std::string token;
+        GeoReference ref;
+        ref.valid = true;
+        while (iss >> token) {
+            if (token == "centerE") iss >> ref.utmCenter.x;
+            else if (token == "centerN") iss >> ref.utmCenter.y;
+            else {
+                double ignored = 0.0;
+                if (token == "half") iss >> ignored;
+            }
+        }
+        return ref;
+    }
+    return std::nullopt;
+}
 
 struct MaterialFallback {
     std::string name;
@@ -232,6 +287,7 @@ static Mesh loadObjMesh(const std::string& path, float scale) {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     mesh.vertexCount = vertices.size();
+    mesh.cpuVertices = std::move(vertices);
     return mesh;
 }
 
@@ -251,6 +307,9 @@ static CityModel loadCityModel(const std::string& path, float scale) {
     std::filesystem::path p(path);
     std::string baseDir = p.parent_path().string();
     if (!baseDir.empty()) baseDir += "/";
+    if (auto ref = readGeoReferenceFromObj(path)) {
+        cm.utmCenter = ref->utmCenter;
+    }
 
     bool ok = tinyobj::LoadObj(&attrib, &shapes, &materials, &warn, &err,
                                path.c_str(), baseDir.c_str(), true);
@@ -393,6 +452,7 @@ static CityModel loadCityModel(const std::string& path, float scale) {
         glBindBuffer(GL_ARRAY_BUFFER, 0);
 
         part.mesh.vertexCount = verts.size();
+        part.mesh.cpuVertices = verts;
 
         if (matId >= 0 && static_cast<size_t>(matId) < materials.size()) {
             const auto& m = materials[matId];
@@ -445,21 +505,17 @@ static void drawMesh(const Mesh& mesh, GLuint shaderProgram, const glm::mat4& mo
 
     GLint useTexLoc = glGetUniformLocation(shaderProgram, "uUseTexture");
     if (useTexLoc != -1) glUniform1i(useTexLoc, useTexture ? 1 : 0);
-    if (useTexture && textureId) {
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_2D, textureId);
-        GLint texLoc = glGetUniformLocation(shaderProgram, "uTexture");
-        if (texLoc != -1) glUniform1i(texLoc, 1);
-    }
+    GLint texLoc = glGetUniformLocation(shaderProgram, "uTexture");
+    if (texLoc != -1) glUniform1i(texLoc, 1);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, (useTexture && textureId) ? textureId : 0);
 
     glBindVertexArray(mesh.vao);
     glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(mesh.vertexCount));
     glBindVertexArray(0);
 
-    if (useTexture && textureId) {
-        glBindTexture(GL_TEXTURE_2D, 0);
-        glActiveTexture(GL_TEXTURE0);
-    }
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glActiveTexture(GL_TEXTURE0);
 }
 
 struct DroneModel {
@@ -618,15 +674,32 @@ static GLuint createShaderProgramFromSource(const std::string& vertSource, const
 
 // ===================== Drone =====================
 struct Drone {
+    std::string name = "drone";
     Pose p;
     float speed = 6.f;    // m/s
     float yawRate = 90.f; // deg/s
     float climb = 3.f;    // m/s
     glm::vec3 bodyScale{0.5f, 0.15f, 0.5f};
+    glm::vec3 color{0.15f, 0.15f, 0.15f};
+    float collisionRadius = 0.45f;
+    bool routeEnabled = false;
+    std::vector<glm::vec3> route;
+    size_t routeIndex = 0;
 };
 
-// Read keyboard and update drone physics
-static inline void updateDrone(Drone& d, float dt) {
+static inline bool hasManualDroneInput() {
+    return sf::Keyboard::isKeyPressed(sf::Keyboard::Key::W) ||
+           sf::Keyboard::isKeyPressed(sf::Keyboard::Key::S) ||
+           sf::Keyboard::isKeyPressed(sf::Keyboard::Key::A) ||
+           sf::Keyboard::isKeyPressed(sf::Keyboard::Key::D) ||
+           sf::Keyboard::isKeyPressed(sf::Keyboard::Key::C) ||
+           sf::Keyboard::isKeyPressed(sf::Keyboard::Key::V) ||
+           sf::Keyboard::isKeyPressed(sf::Keyboard::Key::Q) ||
+           sf::Keyboard::isKeyPressed(sf::Keyboard::Key::E);
+}
+
+// Read keyboard and update drone physics.
+static inline void updateDroneManual(Drone& d, float dt) {
     glm::vec3 fwd = forwardFrom(d.p);
     glm::vec3 right = glm::normalize(glm::cross(fwd, {0, 1, 0}));
 
@@ -644,8 +717,31 @@ static inline void updateDrone(Drone& d, float dt) {
     if (glm::length(move) > 0.f) d.p.pos += glm::normalize(move) * (d.speed * dt);
 }
 
+static inline void updateDroneRoute(Drone& d, float dt) {
+    if (!d.routeEnabled || d.route.empty()) return;
+    if (d.routeIndex >= d.route.size()) d.routeIndex = 0;
+
+    glm::vec3 target = d.route[d.routeIndex];
+    glm::vec3 delta = target - d.p.pos;
+    float dist = glm::length(delta);
+    if (dist < 0.5f) {
+        d.routeIndex = (d.routeIndex + 1) % d.route.size();
+        target = d.route[d.routeIndex];
+        delta = target - d.p.pos;
+        dist = glm::length(delta);
+    }
+    if (dist < 1e-4f) return;
+
+    glm::vec3 dir = delta / dist;
+    float step = std::min(d.speed * dt, dist);
+    d.p.pos += dir * step;
+    d.p.yaw = glm::degrees(std::atan2(dir.z, dir.x));
+    d.p.pitch = glm::degrees(std::asin(glm::clamp(dir.y, -1.0f, 1.0f)));
+}
+
 // Draw drone as a scaled cube using object shader
-static inline void drawDroneBox(const Pose& p, const glm::vec3& scale, GLuint shaderProgram, GLuint vao) {
+static inline void drawDroneBox(const Pose& p, const glm::vec3& scale, GLuint shaderProgram, GLuint vao,
+                                const glm::vec3& color = glm::vec3(0.15f, 0.15f, 0.15f)) {
     glm::mat4 model(1.f);
     model = glm::translate(model, p.pos);
     model = glm::rotate(model, glm::radians(-p.yaw), glm::vec3(0, 1, 0));
@@ -653,7 +749,7 @@ static inline void drawDroneBox(const Pose& p, const glm::vec3& scale, GLuint sh
     model = glm::scale(model, scale);
 
     glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "uModel"), 1, GL_FALSE, glm::value_ptr(model));
-    glUniform3f(glGetUniformLocation(shaderProgram, "uObjectColor"), 0.15f, 0.15f, 0.15f);
+    glUniform3fv(glGetUniformLocation(shaderProgram, "uObjectColor"), 1, glm::value_ptr(color));
     GLint useTexLoc = glGetUniformLocation(shaderProgram, "uUseTexture");
     if (useTexLoc != -1) glUniform1i(useTexLoc, 0);
 
@@ -691,7 +787,7 @@ static inline void drawDroneModel(const Drone& d, const DroneModel& model, float
     const glm::vec3 offRL{ -propHalf, propLift, -propHalf };
     const glm::vec3 offRR{ -propHalf, propLift, +propHalf };
 
-    const glm::vec3 bodyColor(0.2f, 0.2f, 0.2f);
+    const glm::vec3 bodyColor = d.color;
     const glm::vec3 propColor(0.1f, 0.1f, 0.1f);
 
     drawMesh(model.body, shaderProgram, base * modelFix * bodyFix, bodyColor);
@@ -912,8 +1008,8 @@ static std::vector<float> generateGridVertices(int halfSize = 5) {
 }
 
 // Create VAO/VBO for grid lines
-static void createGridVAO(GLuint& vao, GLuint& vbo, int& vertexCount) {
-    std::vector<float> gridVertices = generateGridVertices(100);
+static void createGridVAO(GLuint& vao, GLuint& vbo, int& vertexCount, int halfSize = 100) {
+    std::vector<float> gridVertices = generateGridVertices(halfSize);
     vertexCount = static_cast<int>(gridVertices.size() / 6);
 
     glGenVertexArrays(1, &vao);
@@ -933,16 +1029,16 @@ static void createGridVAO(GLuint& vao, GLuint& vbo, int& vertexCount) {
 }
 
 // Create VAO/VBO for ground plane
-static void createGroundVAO(GLuint& vao, GLuint& vbo) {
+static void createGroundVAO(GLuint& vao, GLuint& vbo, float halfSize = 100.0f) {
         float groundVertices[] = {
         // PosX, PosY, PosZ, NormalX, NormalY, NormalZ (6 floats pro Vertex)
-        -100.0f, 0.0f, -100.0f, 0.0f, 1.0f, 0.0f, // Unten links
-        100.0f, 0.0f, -100.0f, 0.0f, 1.0f, 0.0f, // Unten rechts
-        -100.0f, 0.0f,  100.0f, 0.0f, 1.0f, 0.0f, // Oben links
+        -halfSize, 0.0f, -halfSize, 0.0f, 1.0f, 0.0f, // Unten links
+        halfSize, 0.0f, -halfSize, 0.0f, 1.0f, 0.0f, // Unten rechts
+        -halfSize, 0.0f,  halfSize, 0.0f, 1.0f, 0.0f, // Oben links
 
-        100.0f, 0.0f, -100.0f, 0.0f, 1.0f, 0.0f, // Unten rechts
-        100.0f, 0.0f,  100.0f, 0.0f, 1.0f, 0.0f, // Oben rechts
-        -100.0f, 0.0f,  100.0f, 0.0f, 1.0f, 0.0f  // Oben links
+        halfSize, 0.0f, -halfSize, 0.0f, 1.0f, 0.0f, // Unten rechts
+        halfSize, 0.0f,  halfSize, 0.0f, 1.0f, 0.0f, // Oben rechts
+        -halfSize, 0.0f,  halfSize, 0.0f, 1.0f, 0.0f  // Oben links
     };
 
     glGenVertexArrays(1, &vao);
@@ -1086,6 +1182,16 @@ static std::vector<glm::vec3> convexHullXZ(std::vector<glm::vec3> pts); // forwa
 
 // ===================== Lidar / Radar (simulation + debug draw) =====================
 struct AABB { glm::vec3 mn, mx; int id; };
+struct Triangle { glm::vec3 a, b, c; int id; };
+struct RayHit { bool ok = false; float t = 0.0f; glm::vec3 point{0.f}; int id = -1; };
+struct WorldGeometry {
+    std::vector<AABB> boxes;
+    std::vector<Triangle> triangles;
+    glm::vec3 boundsMin{0.f};
+    glm::vec3 boundsMax{0.f};
+    bool hasBounds = false;
+};
+
 static inline AABB makeAABB(const Object3D& o) {
     glm::vec3 h = 0.5f * o.dimensions;
     return {o.position - h, o.position + h, 0};
@@ -1139,6 +1245,58 @@ static inline bool rayAABB(const glm::vec3& ro, const glm::vec3& rd, const AABB&
     }
     tHit = tmin;
     return true;
+}
+
+static inline bool rayTriangle(const glm::vec3& ro, const glm::vec3& rd, const Triangle& tri, float tMax, float& tHit) {
+    const float eps = 1e-6f;
+    glm::vec3 edge1 = tri.b - tri.a;
+    glm::vec3 edge2 = tri.c - tri.a;
+    glm::vec3 h = glm::cross(rd, edge2);
+    float det = glm::dot(edge1, h);
+    if (std::abs(det) < eps) return false;
+
+    float invDet = 1.0f / det;
+    glm::vec3 s = ro - tri.a;
+    float u = invDet * glm::dot(s, h);
+    if (u < 0.0f || u > 1.0f) return false;
+
+    glm::vec3 q = glm::cross(s, edge1);
+    float v = invDet * glm::dot(rd, q);
+    if (v < 0.0f || u + v > 1.0f) return false;
+
+    float t = invDet * glm::dot(edge2, q);
+    if (t <= 0.001f || t > tMax) return false;
+
+    tHit = t;
+    return true;
+}
+
+static inline RayHit rayWorld(const glm::vec3& ro, const glm::vec3& rd, const WorldGeometry& world, float tMax) {
+    RayHit best;
+    best.t = tMax;
+
+    for (const auto& box : world.boxes) {
+        float th = 0.0f;
+        if (rayAABB(ro, rd, box, tMax, th) && th < best.t) {
+            best = {true, th, ro + rd * th, box.id};
+        }
+    }
+
+    for (const auto& tri : world.triangles) {
+        float th = 0.0f;
+        if (rayTriangle(ro, rd, tri, tMax, th) && th < best.t) {
+            best = {true, th, ro + rd * th, tri.id};
+        }
+    }
+
+    return best;
+}
+
+static inline float sceneRayLimit(const glm::vec3& origin, const WorldGeometry& world, float configuredMax) {
+    if (configuredMax > 0.0f) return configuredMax;
+    if (!world.hasBounds) return 100000.0f;
+    glm::vec3 farCorner = glm::max(glm::abs(world.boundsMin - origin), glm::abs(world.boundsMax - origin));
+    return glm::length(farCorner) + 100.0f;
 }
 
 struct Hit3D { bool ok; float range; glm::vec3 point; int objId; glm::vec3 dir; };
@@ -1213,12 +1371,13 @@ static inline void writeLidarFrameYaml(const std::string& outputDir,
     }
 }
 static inline std::vector<Hit3D> simulateLidar3D(const Pose& p,
-                                                 const std::vector<AABB>& world,
+                                                 const WorldGeometry& world,
                                                  int beamsH, int beamsV,
                                                  float fovH_deg, float fovV_deg,
                                                  float maxR) {
     std::vector<Hit3D> hits;
     hits.reserve(beamsH * beamsV);
+    const float rayLimit = sceneRayLimit(p.pos, world, maxR);
 
     // Basis from DRONE pose (not camera!)
     float yaw=glm::radians(p.yaw), pit=glm::radians(p.pitch);
@@ -1232,14 +1391,9 @@ static inline std::vector<Hit3D> simulateLidar3D(const Pose& p,
             float h = ((i/(float)(beamsH-1)) - 0.5f) * glm::radians(fovH_deg);
             glm::vec3 dir = glm::normalize(F + std::tan(h)*R + std::tan(v)*U);
 
-            float best = maxR; int bestId=-1;
-            for (const auto& b : world){
-                float th; if (rayAABB(p.pos, dir, b, maxR, th)) {
-                    if (th < best) { best = th; bestId = b.id; }
-                }
-            }
-            if (bestId>=0) hits.push_back({true, best, p.pos + dir*best, bestId, dir});
-            else           hits.push_back({false, maxR, p.pos + dir*maxR, -1, dir});
+            RayHit hit = rayWorld(p.pos, dir, world, rayLimit);
+            if (hit.ok) hits.push_back({true, hit.t, hit.point, hit.id, dir});
+            else        hits.push_back({false, rayLimit, p.pos + dir*rayLimit, -1, dir});
         }
     }
     return hits;
@@ -1326,10 +1480,11 @@ static inline void writeRadarFrameYaml(const std::string& outputDir,
 
 static inline std::vector<RadarDet> simulateRadar3D(const Pose& sensorPose,
                                                     const glm::vec3& sensorVel,
-                                                    const std::vector<AABB>& world,
+                                                    const WorldGeometry& world,
                                                     const RadarParams& R) {
     std::vector<RadarDet> dets;
     dets.reserve(R.beamsH * R.beamsV);
+    const float rayLimit = sceneRayLimit(sensorPose.pos, world, R.maxR);
 
     float yaw = glm::radians(sensorPose.yaw), pit = glm::radians(sensorPose.pitch);
     glm::vec3 F = glm::normalize(glm::vec3(std::cos(yaw)*std::cos(pit), std::sin(pit), std::sin(yaw)*std::cos(pit)));
@@ -1343,23 +1498,16 @@ static inline std::vector<RadarDet> simulateRadar3D(const Pose& sensorPose,
 
             glm::vec3 dir = glm::normalize(F + std::tan(az)*Rv + std::tan(el)*U);
 
-            float best = R.maxR; int bestId = -1;
-            for (const auto& box : world) {
-                float th;
-                if (rayAABB(sensorPose.pos, dir, box, R.maxR, th)) {
-                    if (th < best && th > R.minR) { best = th; bestId = box.id; }
-                }
-            }
-
-            if (bestId < 0) {
-                dets.push_back({false, R.maxR, 0.f, az, el, sensorPose.pos + dir*R.maxR, -1});
+            RayHit hit = rayWorld(sensorPose.pos, dir, world, rayLimit);
+            if (!hit.ok || hit.t <= R.minR) {
+                dets.push_back({false, rayLimit, 0.f, az, el, sensorPose.pos + dir*rayLimit, -1});
                 continue;
             }
 
             // SNR ~ snr0 - 40 log10(R) (1/R^4 power law)
-            float snr = R.snr0 - 40.f * std::log10(std::max(best, 1e-2f));
+            float snr = R.snr0 - 40.f * std::log10(std::max(hit.t, 1e-2f));
             if (snr < R.snrMin) {
-                dets.push_back({false, R.maxR, 0.f, az, el, sensorPose.pos + dir*R.maxR, -1});
+                dets.push_back({false, rayLimit, 0.f, az, el, sensorPose.pos + dir*rayLimit, -1});
                 continue;
             }
 
@@ -1367,7 +1515,7 @@ static inline std::vector<RadarDet> simulateRadar3D(const Pose& sensorPose,
             // float vr = glm::dot(sensorVel, dir) * (-1.0f); // flip to make +closing
             float vr = glm::dot(sensorVel, dir); // flip to make +closing
 
-            dets.push_back({true, best, vr, az, el, sensorPose.pos + dir*best, bestId});
+            dets.push_back({true, hit.t, vr, az, el, hit.point, hit.id});
         }
     }
     return dets;
@@ -1472,9 +1620,16 @@ static void drawLines(const std::vector<glm::vec3>& vertices, const glm::vec3& c
 struct ShadowMap {
     GLuint fbo = 0;
     GLuint depthTex = 0;
-    unsigned w = 8192*2, h = 8192*2;
+    unsigned w = 4096, h = 4096;
 
     void init() {
+        GLint maxTexSize = 0;
+        glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTexSize);
+        if (maxTexSize > 0) {
+            if (w > static_cast<unsigned>(maxTexSize)) w = static_cast<unsigned>(maxTexSize);
+            if (h > static_cast<unsigned>(maxTexSize)) h = static_cast<unsigned>(maxTexSize);
+        }
+
         glGenFramebuffers(1, &fbo);
         glGenTextures(1, &depthTex);
 
@@ -1493,6 +1648,8 @@ struct ShadowMap {
         glReadBuffer(GL_NONE);
         if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
             std::cerr << "ERROR::FRAMEBUFFER:: Shadow Map FBO incomplete\n";
+        } else {
+            std::cout << "Shadow map size: " << w << "x" << h << " (GL_MAX_TEXTURE_SIZE=" << maxTexSize << ")\n";
         }
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
@@ -1790,39 +1947,288 @@ static SensorConfig loadSensorConfig(const std::string& cfgPath) {
     return cfg;
 }
 
-// Build static AABB list for ray tests
-static std::vector<AABB> buildWorldAABBs(const std::vector<std::unique_ptr<Object3D>>& objects) {
-    std::vector<AABB> worldAABBs;
-    worldAABBs.reserve(objects.size());
+static inline void expandWorldBounds(WorldGeometry& world, const glm::vec3& p) {
+    if (!world.hasBounds) {
+        world.boundsMin = p;
+        world.boundsMax = p;
+        world.hasBounds = true;
+    } else {
+        world.boundsMin = glm::min(world.boundsMin, p);
+        world.boundsMax = glm::max(world.boundsMax, p);
+    }
+}
+
+static void addMeshTrianglesToWorld(WorldGeometry& world, const Mesh& mesh, const glm::mat4& transform, int id) {
+    if (mesh.cpuVertices.size() < 3) return;
+    for (size_t i = 0; i + 2 < mesh.cpuVertices.size(); i += 3) {
+        glm::vec3 a = glm::vec3(transform * glm::vec4(mesh.cpuVertices[i + 0].pos, 1.0f));
+        glm::vec3 b = glm::vec3(transform * glm::vec4(mesh.cpuVertices[i + 1].pos, 1.0f));
+        glm::vec3 c = glm::vec3(transform * glm::vec4(mesh.cpuVertices[i + 2].pos, 1.0f));
+        world.triangles.push_back({a, b, c, id});
+        expandWorldBounds(world, a);
+        expandWorldBounds(world, b);
+        expandWorldBounds(world, c);
+    }
+}
+
+static void addCityModelToWorld(WorldGeometry& world, const CityModel& city, const glm::mat4& transform, int idStart) {
+    int id = idStart;
+    for (const auto& part : city.parts) {
+        addMeshTrianglesToWorld(world, part.mesh, transform, id++);
+    }
+}
+
+// Build static geometry for ray tests and collision.
+static WorldGeometry buildWorldGeometry(const std::vector<std::unique_ptr<Object3D>>& objects,
+                                        const CityModel* city,
+                                        const glm::mat4* cityTransform,
+                                        const CityModel* terrain,
+                                        const glm::mat4* terrainTransform) {
+    WorldGeometry world;
+    world.boxes.reserve(objects.size());
     for (size_t i = 0; i < objects.size(); ++i) {
         auto box = makeAABB(*objects[i]);
         box.id = static_cast<int>(i);
-        worldAABBs.push_back(box);
+        world.boxes.push_back(box);
+        expandWorldBounds(world, box.mn);
+        expandWorldBounds(world, box.mx);
     }
-    return worldAABBs;
+
+    int nextId = static_cast<int>(world.boxes.size());
+    if (city && cityTransform && city->valid()) {
+        addCityModelToWorld(world, *city, *cityTransform, nextId);
+        nextId += static_cast<int>(city->parts.size());
+    }
+    if (terrain && terrainTransform && terrain->valid()) {
+        addCityModelToWorld(world, *terrain, *terrainTransform, nextId);
+    }
+    std::cout << "World collision geometry: " << world.boxes.size()
+              << " boxes, " << world.triangles.size() << " triangles\n";
+    if (world.hasBounds) {
+        std::cout << "World bounds: min(" << world.boundsMin.x << ", " << world.boundsMin.y << ", " << world.boundsMin.z
+                  << ") max(" << world.boundsMax.x << ", " << world.boundsMax.y << ", " << world.boundsMax.z << ")\n";
+    }
+    return world;
+}
+
+static inline glm::vec3 closestPointOnTriangle(const glm::vec3& p, const Triangle& tri) {
+    const glm::vec3 ab = tri.b - tri.a;
+    const glm::vec3 ac = tri.c - tri.a;
+    const glm::vec3 ap = p - tri.a;
+
+    float d1 = glm::dot(ab, ap);
+    float d2 = glm::dot(ac, ap);
+    if (d1 <= 0.0f && d2 <= 0.0f) return tri.a;
+
+    const glm::vec3 bp = p - tri.b;
+    float d3 = glm::dot(ab, bp);
+    float d4 = glm::dot(ac, bp);
+    if (d3 >= 0.0f && d4 <= d3) return tri.b;
+
+    float vc = d1 * d4 - d3 * d2;
+    if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f) {
+        float v = d1 / (d1 - d3);
+        return tri.a + v * ab;
+    }
+
+    const glm::vec3 cp = p - tri.c;
+    float d5 = glm::dot(ab, cp);
+    float d6 = glm::dot(ac, cp);
+    if (d6 >= 0.0f && d5 <= d6) return tri.c;
+
+    float vb = d5 * d2 - d1 * d6;
+    if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f) {
+        float w = d2 / (d2 - d6);
+        return tri.a + w * ac;
+    }
+
+    float va = d3 * d6 - d5 * d4;
+    if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f) {
+        float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return tri.b + w * (tri.c - tri.b);
+    }
+
+    float denom = 1.0f / (va + vb + vc);
+    float v = vb * denom;
+    float w = vc * denom;
+    return tri.a + ab * v + ac * w;
+}
+
+static bool resolveSphereWorldCollision(glm::vec3& pos, float radius, const WorldGeometry& world) {
+    bool collided = false;
+    const float radiusSq = radius * radius;
+
+    for (const auto& box : world.boxes) {
+        glm::vec3 closest = glm::clamp(pos, box.mn, box.mx);
+        glm::vec3 delta = pos - closest;
+        float distSq = glm::dot(delta, delta);
+        if (distSq >= radiusSq) continue;
+
+        collided = true;
+        if (distSq > 1e-8f) {
+            float dist = std::sqrt(distSq);
+            pos += (delta / dist) * (radius - dist + 0.01f);
+        } else {
+            glm::vec3 toMin = pos - box.mn;
+            glm::vec3 toMax = box.mx - pos;
+            int axis = 0;
+            float depth = std::min(toMin.x, toMax.x);
+            if (std::min(toMin.y, toMax.y) < depth) { axis = 1; depth = std::min(toMin.y, toMax.y); }
+            if (std::min(toMin.z, toMax.z) < depth) { axis = 2; depth = std::min(toMin.z, toMax.z); }
+            float sign = (toMin[axis] < toMax[axis]) ? -1.0f : 1.0f;
+            pos[axis] += sign * (depth + radius + 0.01f);
+        }
+    }
+
+    for (const auto& tri : world.triangles) {
+        glm::vec3 closest = closestPointOnTriangle(pos, tri);
+        glm::vec3 delta = pos - closest;
+        float distSq = glm::dot(delta, delta);
+        if (distSq >= radiusSq) continue;
+
+        glm::vec3 normal = glm::normalize(glm::cross(tri.b - tri.a, tri.c - tri.a));
+        if (!std::isfinite(normal.x) || glm::length(normal) < 1e-5f) continue;
+        if (glm::dot(normal, delta) < 0.0f) normal = -normal;
+
+        collided = true;
+        float dist = std::sqrt(std::max(distSq, 0.0f));
+        glm::vec3 pushDir = dist > 1e-5f ? (delta / dist) : normal;
+        pos += pushDir * (radius - dist + 0.01f);
+    }
+
+    return collided;
+}
+
+static inline void resolveDroneCollision(Drone& drone, const glm::vec3& previousPos, const WorldGeometry& world) {
+    glm::vec3 corrected = drone.p.pos;
+    if (resolveSphereWorldCollision(corrected, drone.collisionRadius, world)) {
+        drone.p.pos = corrected;
+        if (resolveSphereWorldCollision(drone.p.pos, drone.collisionRadius, world)) {
+            drone.p.pos = previousPos;
+        }
+    }
+    drone.p.pos.y = std::max(drone.p.pos.y, drone.collisionRadius);
+}
+
+static glm::vec3 parseSimPoint(const YAML::Node& n, const GeoReference* geoRef) {
+    if (n.IsSequence() && n.size() >= 3) {
+        return glm::vec3(n[0].as<float>(), n[1].as<float>(), n[2].as<float>());
+    }
+    if (n.IsMap()) {
+        if (n["position"]) return parseSimPoint(n["position"], geoRef);
+        if (n["local"]) return parseSimPoint(n["local"], geoRef);
+        if (n["utm"] && geoRef && geoRef->valid) {
+            const auto u = n["utm"];
+            return geoRef->worldToSim(u[0].as<double>(), u[1].as<double>(), u[2].as<float>());
+        }
+        if (n["easting"] && n["northing"] && n["altitude"] && geoRef && geoRef->valid) {
+            return geoRef->worldToSim(n["easting"].as<double>(), n["northing"].as<double>(), n["altitude"].as<float>());
+        }
+    }
+    return glm::vec3(0.0f, 30.0f, 0.0f);
+}
+
+static std::vector<Drone> loadDronesFromConfig(const std::string& cfgPath, const GeoReference* geoRef) {
+    std::vector<Drone> drones;
+    try {
+        YAML::Node root = YAML::LoadFile(cfgPath);
+        if (!root["drones"]) return drones;
+
+        int idx = 0;
+        for (const auto& n : root["drones"]) {
+            Drone d;
+            d.name = n["name"] ? n["name"].as<std::string>() : ("drone" + std::to_string(idx + 1));
+            if (n["position"]) d.p.pos = parseSimPoint(n["position"], geoRef);
+            if (n["yaw"]) d.p.yaw = n["yaw"].as<float>();
+            if (n["pitch"]) d.p.pitch = n["pitch"].as<float>();
+            if (n["speed"]) d.speed = n["speed"].as<float>();
+            if (n["collisionRadius"]) d.collisionRadius = n["collisionRadius"].as<float>();
+            if (n["color"] && n["color"].IsSequence() && n["color"].size() >= 3) {
+                d.color = glm::vec3(n["color"][0].as<float>(), n["color"][1].as<float>(), n["color"][2].as<float>());
+            }
+            if (n["route"]) {
+                for (const auto& wp : n["route"]) d.route.push_back(parseSimPoint(wp, geoRef));
+                d.routeEnabled = d.route.size() >= 2;
+                if (!d.route.empty() && !n["position"]) d.p.pos = d.route.front();
+            }
+            drones.push_back(std::move(d));
+            idx++;
+        }
+        std::cout << "Loaded " << drones.size() << " drones from " << cfgPath << "\n";
+    } catch (...) {
+        std::cerr << "Error loading drones from " << cfgPath << ", using default drone routes...\n";
+    }
+    return drones;
+}
+
+static std::vector<Drone> createDefaultDrones(const WorldGeometry& world) {
+    glm::vec3 mn = world.hasBounds ? world.boundsMin : glm::vec3(-80.f, 0.f, -80.f);
+    glm::vec3 mx = world.hasBounds ? world.boundsMax : glm::vec3(80.f, 80.f, 80.f);
+    float minX = std::max(mn.x + 20.0f, -120.0f);
+    float maxX = std::min(mx.x - 20.0f, 120.0f);
+    float minZ = std::max(mn.z + 20.0f, -120.0f);
+    float maxZ = std::min(mx.z - 20.0f, 120.0f);
+    if (minX >= maxX) { minX = -60.0f; maxX = 60.0f; }
+    if (minZ >= maxZ) { minZ = -60.0f; maxZ = 60.0f; }
+
+    float cruiseY = std::max(mx.y + 8.0f, 45.0f);
+
+    Drone lead;
+    lead.name = "drone1";
+    lead.color = glm::vec3(0.12f, 0.16f, 0.18f);
+    lead.speed = 10.0f;
+    lead.p.pos = glm::vec3(minX, cruiseY, minZ);
+    lead.route = {
+        glm::vec3(minX, cruiseY, minZ),
+        glm::vec3(maxX, cruiseY, maxZ)
+    };
+    lead.routeEnabled = true;
+
+    Drone wing;
+    wing.name = "drone2";
+    wing.color = glm::vec3(0.05f, 0.35f, 0.55f);
+    wing.speed = 8.0f;
+    wing.p.pos = glm::vec3(maxX, cruiseY + 8.0f, minZ);
+    wing.route = {
+        glm::vec3(maxX, cruiseY + 8.0f, minZ),
+        glm::vec3(minX, cruiseY + 8.0f, maxZ)
+    };
+    wing.routeEnabled = true;
+
+    return {lead, wing};
 }
 
 // ===================== Rendering helpers =====================
 // Render all cubes (objects + drone) with object shader
 static void renderSceneCubes(GLuint shader, GLuint cubeVAO,
                              const std::vector<std::unique_ptr<Object3D>>& objects,
-                             const Drone& drone,
+                             const std::vector<Drone>& drones,
                              const DroneModel* droneModel,
                              float propAngle,
                              const CityModel* city,
-                             const glm::mat4* cityTransform) {
+                             const glm::mat4* cityTransform,
+                             const CityModel* terrain,
+                             const glm::mat4* terrainTransform) {
     for (const auto& object : objects) object->draw(shader, cubeVAO);
 
-    // Drone
-    if (droneModel && droneModel->loaded) {
-        drawDroneModel(drone, *droneModel, propAngle, shader);
-    } else {
-        drawDroneBox(drone.p, drone.bodyScale, shader, cubeVAO);
+    for (const auto& drone : drones) {
+        if (droneModel && droneModel->loaded) {
+            drawDroneModel(drone, *droneModel, propAngle, shader);
+        } else {
+            drawDroneBox(drone.p, drone.bodyScale, shader, cubeVAO, drone.color);
+        }
     }
 
     if (city && cityTransform && city->valid()) {
         for (const auto& part : city->parts) {
             drawMesh(part.mesh, shader, *cityTransform, part.color, part.textureId, part.hasTexture);
+        }
+    }
+
+    if (terrain && terrainTransform && terrain->valid()) {
+        const glm::vec3 terrainDebugColor(0.05f, 0.75f, 0.05f);
+        for (const auto& part : terrain->parts) {
+            drawMesh(part.mesh, shader, *terrainTransform, terrainDebugColor, 0, false);
         }
     }
 }
@@ -1929,11 +2335,13 @@ static void shadowPass(const ShadowMap& sm, GLuint shadowShader,
                        const glm::mat4& lightSpace,
                        GLuint cubeVAO,
                        const std::vector<std::unique_ptr<Object3D>>& objects,
-                       const Drone& drone,
+                       const std::vector<Drone>& drones,
                        const DroneModel* droneModel,
                        float propAngle,
                        const CityModel* city,
-                       const glm::mat4* cityTransform) {
+                       const glm::mat4* cityTransform,
+                       const CityModel* terrain,
+                       const glm::mat4* terrainTransform) {
     sm.bindForWrite();
     glUseProgram(shadowShader);
     glUniformMatrix4fv(glGetUniformLocation(shadowShader, "uLightSpaceMatrix"), 1, GL_FALSE, glm::value_ptr(lightSpace));
@@ -1941,8 +2349,8 @@ static void shadowPass(const ShadowMap& sm, GLuint shadowShader,
     // Draw objects using the same VAO; shader uses uModel only
     // Reuse the same routine which sets uModel for each object
     // but bind shadow shader instead of object shader.
-    renderSceneCubes(shadowShader, cubeVAO, objects, drone, droneModel, propAngle,
-                     city, cityTransform);
+    renderSceneCubes(shadowShader, cubeVAO, objects, drones, droneModel, propAngle,
+                     city, cityTransform, terrain, terrainTransform);
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
@@ -1953,11 +2361,13 @@ static void mainPass(GLuint objectShader, GLuint cubeVAO,
                      const glm::mat4& lightSpace, const glm::vec3& lightPos,
                      const ShadowMap& sm,
                      const std::vector<std::unique_ptr<Object3D>>& objects,
-                     const Drone& drone,
+                     const std::vector<Drone>& drones,
                      const DroneModel* droneModel,
                      float propAngle,
                      const CityModel* city,
-                     const glm::mat4* cityTransform) {
+                     const glm::mat4* cityTransform,
+                     const CityModel* terrain,
+                     const glm::mat4* terrainTransform) {
     // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST);
 
@@ -1969,8 +2379,8 @@ static void mainPass(GLuint objectShader, GLuint cubeVAO,
 
     sm.bindForRead(objectShader, 0);
 
-    renderSceneCubes(objectShader, cubeVAO, objects, drone, droneModel, propAngle,
-                     city, cityTransform);
+    renderSceneCubes(objectShader, cubeVAO, objects, drones, droneModel, propAngle,
+                     city, cityTransform, terrain, terrainTransform);
 
     glUseProgram(0);
     // glDisable(GL_DEPTH_TEST);
@@ -2046,7 +2456,6 @@ int main() {
 
     // ---- Create geometry
     GLuint gridVAO = 0, gridVBO = 0; int gridVertexCount = 0;
-    createGridVAO(gridVAO, gridVBO, gridVertexCount);
 
     GLuint cubeVAO = 0, cubeVBO = 0;
     createCubeVAO(cubeVAO, cubeVBO);
@@ -2055,7 +2464,6 @@ int main() {
     createSensorVAO(sensorVAO, sensorVBO);
 
     GLuint groundVAO = 0, groundVBO = 0;
-    createGroundVAO(groundVAO, groundVBO);
 
     GLuint quadVAO = 0, quadVBO = 0;
     createScreenQuadVAO(quadVAO, quadVBO);
@@ -2075,6 +2483,41 @@ int main() {
     if (!city.valid()) {
         std::cerr << "City clip not loaded (map/hh_clip.obj).\n";
     }
+    GeoReference geoRef;
+    if (city.utmCenter) {
+        geoRef.valid = true;
+        geoRef.utmCenter = *city.utmCenter;
+        geoRef.mapLocalToSim = cityTransform;
+        geoRef.simToMapLocal = glm::inverse(cityTransform);
+        std::cout << "World CRS: " << geoRef.crs << " center=("
+                  << geoRef.utmCenter.x << ", " << geoRef.utmCenter.y << ")\n";
+    }
+
+    CityModel terrain = loadCityModel("map/surface_ground.obj", 1.0f);
+    if (!terrain.valid()) {
+        terrain = loadCityModel("map/surface.obj", 1.0f);
+    }
+    if (!terrain.valid()) {
+        terrain = loadCityModel("map/terrain.obj", 1.0f);
+    }
+    glm::mat4 terrainTransform = cityTransform;
+    if (terrain.valid() && terrain.hasBounds) {
+        // Keep converted terrain heights as-is (no auto-lift), and use a neutral debug color.
+        for (auto& part : terrain.parts) {
+            part.color = glm::vec3(0.45f, 0.45f, 0.45f);
+            part.hasTexture = false;
+            if (part.textureId) {
+                glDeleteTextures(1, &part.textureId);
+                part.textureId = 0;
+            }
+        }
+
+        std::cout << "Terrain bounds before transform: min(" << terrain.boundsMin.x << ", " << terrain.boundsMin.y << ", " << terrain.boundsMin.z
+                  << ") max(" << terrain.boundsMax.x << ", " << terrain.boundsMax.y << ", " << terrain.boundsMax.z << ")\n";
+    }
+    if (!terrain.valid()) {
+        std::cerr << "Surface model not loaded (expected map/surface_ground.obj, map/surface.obj or map/terrain.obj).\n";
+    }
 
     CameraFBO droneCamFbo;
     droneCamFbo.init(sensorCfg.camera.width, sensorCfg.camera.height);
@@ -2091,10 +2534,20 @@ int main() {
 
     // ---- Scene objects
     auto objects = loadObjectsOrDefault("config.yaml");
-    auto worldAABBs = buildWorldAABBs(objects);
-    if (city.valid() && city.hasBounds) {
-        worldAABBs.push_back(makeAABBFromBounds(city.boundsMin, city.boundsMax, cityTransform, static_cast<int>(worldAABBs.size())));
+    auto world = buildWorldGeometry(objects, &city, &cityTransform, &terrain, &terrainTransform);
+
+    float sceneHalfExtent = 250.0f;
+    if (world.hasBounds) {
+        sceneHalfExtent = std::max({std::abs(world.boundsMin.x), std::abs(world.boundsMax.x),
+                                    std::abs(world.boundsMin.z), std::abs(world.boundsMax.z),
+                                    250.0f}) + 50.0f;
     }
+    createGridVAO(gridVAO, gridVBO, gridVertexCount, static_cast<int>(std::ceil(sceneHalfExtent)));
+    createGroundVAO(groundVAO, groundVBO, sceneHalfExtent);
+
+    auto drones = loadDronesFromConfig("config.yaml", geoRef.valid ? &geoRef : nullptr);
+    if (drones.empty()) drones = createDefaultDrones(world);
+    if (drones.empty()) drones.push_back(Drone{});
 
     // ---- Lighting
     glm::vec3 lightPos(5.0f, 50.0f, 3.0f);
@@ -2107,9 +2560,6 @@ int main() {
     bool followDrone = true;
     sf::Vector2i windowCenter(window.getSize().x / 2, window.getSize().y / 2);
 
-    // ---- Drone & sensors
-    Drone drone; drone.p.yaw = -90.f;
-
     float propAngle = 0.0f;
     const float propSpeed = glm::radians(1800.0f); // deg/s
 
@@ -2120,7 +2570,7 @@ int main() {
     bool showLidarInCam = false;
     bool showRadarInCam = false;
     RadarParams radarCfg;
-    glm::vec3 prevDronePos = drone.p.pos, droneVel{0,0,0};
+    glm::vec3 prevDronePos = drones.front().p.pos, droneVel{0,0,0};
     bool prevPosValid = false;
 
     // ---- Lidar config
@@ -2259,14 +2709,34 @@ int main() {
                 cam.right = glm::normalize(glm::cross(cam.front, cam.up));
             }
             updateFreeCamera(cam, dtSmooth, 5.0f);
+
+            for (auto& droneUnit : drones) {
+                glm::vec3 previous = droneUnit.p.pos;
+                updateDroneRoute(droneUnit, dtSmooth);
+                resolveDroneCollision(droneUnit, previous, world);
+            }
+            Drone& primaryDrone = drones.front();
+            if (!prevPosValid) { prevPosValid = true; prevDronePos = primaryDrone.p.pos; }
+            droneVel = (primaryDrone.p.pos - prevDronePos) / std::max(dtSmooth, 1e-4f);
+            prevDronePos = primaryDrone.p.pos;
         } else {
-            updateDrone(drone, dtSmooth);
+            bool manualInput = hasManualDroneInput();
+            for (size_t i = 0; i < drones.size(); ++i) {
+                glm::vec3 previous = drones[i].p.pos;
+                if (i == 0 && manualInput) {
+                    updateDroneManual(drones[i], dtSmooth);
+                } else {
+                    updateDroneRoute(drones[i], dtSmooth);
+                }
+                resolveDroneCollision(drones[i], previous, world);
+            }
 
-            if (!prevPosValid) { prevPosValid = true; prevDronePos = drone.p.pos; }
-            droneVel = (drone.p.pos - prevDronePos) / std::max(dtSmooth, 1e-4f);
-            prevDronePos = drone.p.pos;
+            Drone& primaryDrone = drones.front();
+            if (!prevPosValid) { prevPosValid = true; prevDronePos = primaryDrone.p.pos; }
+            droneVel = (primaryDrone.p.pos - prevDronePos) / std::max(dtSmooth, 1e-4f);
+            prevDronePos = primaryDrone.p.pos;
 
-            updateFollowCamera(drone, cam);
+            updateFollowCamera(primaryDrone, cam);
         }
 
         // ---- Matrices
@@ -2274,12 +2744,13 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         float aspect = static_cast<float>(window.getSize().x) / static_cast<float>(window.getSize().y);
-        glm::mat4 projection = glm::perspective(glm::radians(45.0f), aspect, 0.5f, 500.0f);
+        float viewFar = std::max(1000.0f, sceneHalfExtent * 4.0f);
+        glm::mat4 projection = glm::perspective(glm::radians(45.0f), aspect, 0.2f, viewFar);
         glm::mat4 view = glm::lookAt(cam.pos, cam.pos + cam.front, cam.up);
 
         // ---- Light space (orthographic, directional-like)
-        float nearPlane = 0.1f, farPlane = 100.0f;
-        float lightRange = 80.0f;
+        float nearPlane = 0.1f, farPlane = std::max(200.0f, sceneHalfExtent * 3.0f);
+        float lightRange = std::max(80.0f, sceneHalfExtent * 1.5f);
         glm::mat4 lightProj = glm::ortho(-lightRange, lightRange, -lightRange, lightRange, nearPlane, farPlane);
         glm::mat4 lightView = glm::lookAt(lightPos, glm::vec3(0.0f, 0.0f, 0.0f), cam.up);
         glm::mat4 lightSpace = lightProj * lightView;
@@ -2288,7 +2759,7 @@ int main() {
         std::vector<Hit3D> hits;
         std::vector<glm::vec3> lidarPoints;
         if (enableLidar || showLidarInCam) {
-            hits = simulateLidar3D(drone.p, worldAABBs, beamsH, beamsV, fovH_deg, fovV_deg, lidarMax);
+            hits = simulateLidar3D(drones.front().p, world, beamsH, beamsV, fovH_deg, fovV_deg, lidarMax);
             for (const auto& hit : hits) {
                 if (hit.ok) lidarPoints.push_back(hit.point);
             }
@@ -2297,7 +2768,7 @@ int main() {
         std::vector<RadarDet> radarDets;
         std::vector<glm::vec3> radarPoints;
         if (enableRadar || showRadarInCam) {
-            radarDets = simulateRadar3D(drone.p, droneVel, worldAABBs, radarCfg);
+            radarDets = simulateRadar3D(drones.front().p, droneVel, world, radarCfg);
             for (const auto& det : radarDets) {
                 if (det.ok) radarPoints.push_back(det.point);
             }
@@ -2305,8 +2776,8 @@ int main() {
 
         // ---- Pass 1: Shadow depth
         if (enableShadows) {
-            shadowPass(shadow, shadowShader, lightSpace, cubeVAO, objects, drone, &droneModel, propAngle,
-                       &city, &cityTransform);
+            shadowPass(shadow, shadowShader, lightSpace, cubeVAO, objects, drones, &droneModel, propAngle,
+                       &city, &cityTransform, &terrain, &terrainTransform);
         }
 
         // ---- Pass 2: Grid + scene
@@ -2318,8 +2789,8 @@ int main() {
         renderGround(gridShader, groundVAO, projection, view, lightSpace, lightPos, shadow);
         
         // Opaque scene with shadow map
-        mainPass(objectShader, cubeVAO, projection, view, lightSpace, lightPos, shadow, objects, drone, &droneModel, propAngle,
-               &city, &cityTransform);
+        mainPass(objectShader, cubeVAO, projection, view, lightSpace, lightPos, shadow, objects, drones, &droneModel, propAngle,
+             &city, &cityTransform, &terrain, &terrainTransform);
         
         renderGrid(gridShader, gridVAO, gridVertexCount, projection, view, lightSpace, lightPos, shadow,
                glm::vec3(0.5f, 0.5f, 0.5f));
@@ -2334,19 +2805,19 @@ int main() {
             if (cameraRenderAccumulator >= cameraPeriod) {
                 cameraRenderAccumulator = std::fmod(cameraRenderAccumulator, cameraPeriod);
 
-                glm::vec3 camPos = drone.p.pos + glm::vec3(0.0f, 0.3f, 0.0f);
-                glm::vec3 camFwd = forwardFrom(drone.p);
+                glm::vec3 camPos = drones.front().p.pos + glm::vec3(0.0f, 0.3f, 0.0f);
+                glm::vec3 camFwd = forwardFrom(drones.front().p);
                 glm::mat4 camView = glm::lookAt(camPos, camPos + camFwd, glm::vec3(0.0f, 1.0f, 0.0f));
                 float camAspect = static_cast<float>(droneCamFbo.w) / static_cast<float>(droneCamFbo.h);
-                glm::mat4 camProj = glm::perspective(glm::radians(sensorCfg.camera.fov_deg), camAspect, 0.2f, 80.0f);
+                glm::mat4 camProj = glm::perspective(glm::radians(sensorCfg.camera.fov_deg), camAspect, 0.2f, viewFar);
 
                 droneCamFbo.bind();
                 glClearColor(0.8f, 0.9f, 1.0f, 1.0f);
                 glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
                 renderGround(gridShader, groundVAO, camProj, camView, lightSpace, lightPos, shadow);
-                mainPass(objectShader, cubeVAO, camProj, camView, lightSpace, lightPos, shadow, objects, drone, &droneModel, propAngle,
-                         &city, &cityTransform);
+                mainPass(objectShader, cubeVAO, camProj, camView, lightSpace, lightPos, shadow, objects, drones, &droneModel, propAngle,
+                         &city, &cityTransform, &terrain, &terrainTransform);
                 renderGrid(gridShader, gridVAO, gridVertexCount, camProj, camView, lightSpace, lightPos, shadow,
                            glm::vec3(0.5f, 0.5f, 0.5f));
 
@@ -2418,8 +2889,16 @@ int main() {
         // ---- FPS
         frameCount++;
         if (fpsCounter.getElapsedTime().asSeconds() >= 1.0f) {
+            const Drone& primaryDrone = drones.front();
             std::cout << "FPS: " << frameCount << " | Light: ("
-                      << lightPos.x << ", " << lightPos.y << ", " << lightPos.z << ")\n";
+                      << lightPos.x << ", " << lightPos.y << ", " << lightPos.z << ")"
+                      << " | " << primaryDrone.name << " local: ("
+                      << primaryDrone.p.pos.x << ", " << primaryDrone.p.pos.y << ", " << primaryDrone.p.pos.z << ")";
+            if (geoRef.valid) {
+                glm::dvec2 worldPos = geoRef.simToWorld(primaryDrone.p.pos);
+                std::cout << " " << geoRef.crs << ": (" << worldPos.x << ", " << worldPos.y << ")";
+            }
+            std::cout << "\n";
             frameCount = 0;
             fpsCounter.restart();
         }

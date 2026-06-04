@@ -3,7 +3,8 @@ lidar:
   beamsV: 15
   fovH_deg: 360.0
   fovV_deg: 45.0
-  maxRange: 50.0
+  # 0 means scan to the edge of the loaded scene instead of using a fixed cap.
+  maxRange: 200.0
   fps: 10.0
   outputDir: lidar_output
 
@@ -12,9 +13,10 @@ radar:
   beamsV: 8
   fovH_deg: 90.0
   fovV_deg: 20.0
-  maxRange: 150.0
+  # 0 means scan to the edge of the loaded scene instead of using a fixed cap.
+  maxRange: 200.0
   minRange: 2.0
-  snr0: 40.0
+  snr0: 130.0
   snrMin: 8.0
   fps: 10.0
   outputDir: radar_output
