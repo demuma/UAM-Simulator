@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.10)
 
 project(UAM-Simulator)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Determine the Homebrew prefix based on the system architecture (for M4 Mac and Homebrew)
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
     set(HOMEBREW_PREFIX "/opt/homebrew/opt")

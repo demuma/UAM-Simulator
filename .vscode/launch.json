@@ -9,7 +9,7 @@
             "name": "Debug",  
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/build/Simulator",
+            "program": "${workspaceFolder}/build/UAM-Simulator",
             "args": [],
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "Build Debug",
@@ -19,7 +19,7 @@
             "name": "Run",
             "type": "lldb",
             "request": "launch",
-            "program": "${workspaceFolder}/build/Simulator",
+            "program": "${workspaceFolder}/build/UAM-Simulator",
             "cwd": "${workspaceFolder}",
             "preLaunchTask": "Build Release",
             "stopOnEntry": false
